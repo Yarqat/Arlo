@@ -1,0 +1,55 @@
+{
+  "name": "yarqat-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3430",
+    "build": "prisma generate && next build",
+    "start": "next start -p 3430 -H 127.0.0.1",
+    "worker": "tsx src/worker/index.ts",
+    "worker:watch": "tsx watch src/worker/index.ts",
+    "db:migrate": "prisma migrate deploy",
+    "db:push": "prisma db push",
+    "db:studio": "prisma studio",
+    "seed:owner": "tsx scripts/seed-owner.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.17.0",
+    "bullmq": "^5.34.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "ioredis": "^5.4.2",
+    "imapflow": "^1.0.188",
+    "jose": "^5.9.6",
+    "lucide-react": "^0.456.0",
+    "mailparser": "^3.7.2",
+    "next": "16.4.2",
+    "nodemailer": "^6.9.16",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "sanitize-html": "^2.14.0",
+    "tailwind-merge": "^2.5.5",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/mailparser": "^3.4.5",
+    "@types/node": "^20",
+    "@types/nodemailer": "^6.4.17",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/sanitize-html": "^2.13.0",
+    "prisma": "^6.17.0",
+    "tailwindcss": "^4",
+    "tsx": "^4.19.2",
+    "typescript": "^5",
+    "vitest": "^2.1.8"
+  },
+  "packageManager": "pnpm@10.33.2",
+  "pnpm": {
+    "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "prisma", "esbuild", "msgpackr-extract"]
+  }
+}

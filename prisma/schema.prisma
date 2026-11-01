@@ -1,0 +1,807 @@
+// Yarqat Agent — data model.
+// Design notes:
+//  - AI proposes; deterministic columns/constraints enforce. Suppression, idempotency,
+//    verification status and budget counters are all first-class rows, never JSON blobs.
+//  - Dedupe of a business is by canonicalDomain (+ city for legitimate branches) via dedupeKey.
+//  - A business has many Contacts but is one Lead.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Identity & profile
+// ---------------------------------------------------------------------------
+
+model Owner {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String   @default("Shah Fahad")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  lastLoginAt  DateTime?
+}
+
+model BusinessProfile {
+  id                 String   @id @default("singleton")
+  companyName        String   @default("Yarqat")
+  personName         String   @default("Shah Fahad")
+  roleTitle          String   @default("")
+  bio                String   @default("")
+  website            String   @default("")
+  writingPreferences String   @default("")
+  prohibitedClaims   String   @default("Never offer prices. Never invent discounts, guarantees, delivery dates, portfolio projects, results, testimonials or capabilities. Never claim a site is slow without measurement. Never invent shared connections or prior conversations.")
+  defaultSignature   String   @default("")
+  timezone           String   @default("Asia/Karachi")
+  updatedAt          DateTime @updatedAt
+}
+
+model Service {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String  @default("")
+  enabled     Boolean @default(true)
+  sortOrder   Int     @default(0)
+  findings    ResearchFinding[]
+}
+
+model PortfolioItem {
+  id          String   @id @default(cuid())
+  title       String
+  url         String   @default("")
+  description String   @default("")
+  tags        String[] @default([])
+  approved    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Lead discovery & CRM
+// ---------------------------------------------------------------------------
+
+enum LeadStage {
+  NEW
+  RESEARCHING
+  QUALIFIED
+  READY_FOR_REVIEW
+  SCHEDULED
+  CONTACTED
+  REPLIED
+  INTERESTED
+  MEETING_REQUESTED
+  MEETING_BOOKED
+  PROPOSAL_NEEDED
+  WON
+  LOST
+  NOT_INTERESTED
+  SUPPRESSED
+}
+
+enum QualificationStatus {
+  PENDING
+  QUALIFIED
+  DISQUALIFIED
+  NEEDS_REVIEW
+  EXCLUDED_NO_EMAIL
+}
+
+model LeadSource {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  kind      String   @default("manual") // manual | csv | search_api | directory | website
+  createdAt DateTime @default(now())
+  leads     Lead[]
+}
+
+model Lead {
+  id              String   @id @default(cuid())
+  businessName    String
+  website         String   @default("")
+  canonicalDomain String?
+  dedupeKey       String   @unique // canonicalDomain|city  (stable business identity)
+  category        String   @default("")
+  country         String   @default("")
+  region          String   @default("")
+  city            String   @default("")
+  address         String   @default("")
+  phone           String   @default("")
+
+  sourceId        String?
+  source          LeadSource? @relation(fields: [sourceId], references: [id])
+  discoverySourceUrl String  @default("")
+  discoveryMethod String   @default("")
+  discoveredAt    DateTime @default(now())
+  researchedAt    DateTime?
+
+  stage           LeadStage @default(NEW)
+  qualification   QualificationStatus @default(PENDING)
+  matchExplanation String   @default("")
+  exclusionReason String   @default("")
+
+  nextActionType  String?
+  nextActionAt    DateTime?
+
+  primaryCampaignId String?
+  primaryCampaign   Campaign? @relation("LeadPrimaryCampaign", fields: [primaryCampaignId], references: [id])
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  contacts        Contact[]
+  findings        ResearchFinding[]
+  memberships     CampaignMembership[]
+  threads         Thread[]
+  messages        Message[]
+  scheduledActions ScheduledAction[]
+  stageHistory    LeadStageEvent[]
+
+  @@index([stage])
+  @@index([qualification])
+  @@index([canonicalDomain])
+  @@index([primaryCampaignId])
+}
+
+model LeadStageEvent {
+  id        String    @id @default(cuid())
+  leadId    String
+  lead      Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromStage LeadStage?
+  toStage   LeadStage
+  actor     String    @default("system")
+  note      String    @default("")
+  createdAt DateTime  @default(now())
+
+  @@index([leadId])
+}
+
+enum EmailType {
+  PERSONAL   // named person's professional direct email
+  ROLE       // info@, sales@, contact@
+  GENERIC
+  UNKNOWN
+}
+
+model Contact {
+  id              String   @id @default(cuid())
+  leadId          String
+  lead            Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  name            String   @default("")
+  role            String   @default("")
+  email           String
+  emailType       EmailType @default(UNKNOWN)
+  source          String   @default("")
+  sourceUrl       String   @default("")
+  discoveredAt    DateTime @default(now())
+  isPrimary       Boolean  @default(false)
+  unsubscribeToken String  @unique @default(cuid())
+
+  verifications   VerificationResult[]
+  messages        Message[]
+  scheduledActions ScheduledAction[]
+
+  @@unique([leadId, email])
+  @@index([email])
+}
+
+// ---------------------------------------------------------------------------
+// Verification
+// ---------------------------------------------------------------------------
+
+enum VerificationStatus {
+  DELIVERABLE
+  INVALID
+  CATCH_ALL
+  UNKNOWN
+  DISPOSABLE
+  ROLE
+  UNVERIFIED
+}
+
+model VerificationResult {
+  id          String   @id @default(cuid())
+  contactId   String
+  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  provider    String
+  status      VerificationStatus
+  isRoleAddress Boolean @default(false)
+  isCatchAll  Boolean  @default(false)
+  isDisposable Boolean @default(false)
+  score       Float?
+  raw         Json?
+  checkedAt   DateTime @default(now())
+  staleAfter  DateTime?
+
+  @@index([contactId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Research findings
+// ---------------------------------------------------------------------------
+
+enum FindingKind {
+  FACT
+  OPPORTUNITY
+}
+
+model ResearchFinding {
+  id             String   @id @default(cuid())
+  leadId         String
+  lead           Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  kind           FindingKind @default(FACT)
+  observation    String
+  pageUrl        String   @default("")
+  evidenceText   String   @default("")
+  measurement    String   @default("")
+  screenshotPath String   @default("")
+  relatedServiceId String?
+  relatedService   Service? @relation(fields: [relatedServiceId], references: [id])
+  needsManualReview Boolean @default(false)
+  confidence     Float    @default(0.5)
+  researchedAt   DateTime @default(now())
+
+  @@index([leadId])
+}
+
+// ---------------------------------------------------------------------------
+// Campaigns
+// ---------------------------------------------------------------------------
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum OutreachMode {
+  DRAFT_ONLY
+  APPROVE_FIRST
+  AUTOMATIC
+}
+
+model Campaign {
+  id            String   @id @default(cuid())
+  name          String
+  status        CampaignStatus @default(DRAFT)
+  outreachMode  OutreachMode   @default(DRAFT_ONLY)
+
+  // Brief
+  businessType  String   @default("")
+  countries     String[] @default([])
+  regions       String[] @default([])
+  cities        String[] @default([])
+  language      String   @default("English")
+  servicesOffered String[] @default([])
+  positiveCriteria String @default("")
+  exclusions    String   @default("")
+  requiredContactFields String[] @default(["email"])
+  briefRaw      String   @default("") // the original plain-English request
+
+  // Limits (per campaign; null = fall back to global)
+  maxNewLeadsPerDay Int?   @default(20)
+  dailyEmailLimit   Int?
+  hourlyEmailLimit  Int?
+  dailySpendLimit   Decimal? @db.Decimal(10, 2)
+  researchBudget    Decimal? @db.Decimal(10, 2)
+  maxFollowUps      Int?   @default(2)
+  maxPagesPerLead   Int?   @default(5)
+
+  // Sending controls
+  allowCatchAll Boolean @default(false)
+  allowUnknown  Boolean @default(false)
+  timezone      String  @default("Asia/Karachi")
+  businessHours Json?   // { days:[1..5], start:"09:00", end:"17:00" }
+
+  sendingMailboxId String?
+  sendingMailbox   Mailbox? @relation(fields: [sendingMailboxId], references: [id])
+  followUpSequenceId String?
+  followUpSequence   FollowUpSequence? @relation(fields: [followUpSequenceId], references: [id])
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships   CampaignMembership[]
+  leads         Lead[]   @relation("LeadPrimaryCampaign")
+  messages      Message[]
+  scheduledActions ScheduledAction[]
+  modelAssignments ModelAssignment[]
+  threads       Thread[]
+
+  @@index([status])
+}
+
+model CampaignMembership {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  leadId     String
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  addedAt    DateTime @default(now())
+
+  @@unique([campaignId, leadId])
+}
+
+// ---------------------------------------------------------------------------
+// Mailboxes, threads, messages
+// ---------------------------------------------------------------------------
+
+enum MailboxStatus {
+  UNCONFIGURED
+  CONNECTED
+  ERROR
+}
+
+model Mailbox {
+  id            String   @id @default(cuid())
+  senderName    String
+  email         String   @unique
+  signature     String   @default("")
+  providerType  String   @default("smtp") // smtp | ses
+  smtpConfigEnc String?  // encrypted JSON
+  imapConfigEnc String?  // encrypted JSON
+  active        Boolean  @default(true)
+
+  dailyLimit    Int      @default(50)
+  hourlyLimit   Int      @default(15)
+  sendingSchedule Json?  // { days, start, end }
+
+  status        MailboxStatus @default(UNCONFIGURED)
+  lastSyncAt    DateTime?
+  lastError     String   @default("")
+  lastTestedAt  DateTime?
+
+  folders       MailboxFolder[]
+  threads       Thread[]
+  messages      Message[]
+  campaigns     Campaign[]
+  scheduledActions ScheduledAction[]
+  createdAt     DateTime @default(now())
+}
+
+model MailboxFolder {
+  id          String   @id @default(cuid())
+  mailboxId   String
+  mailbox     Mailbox  @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  path        String
+  uidValidity BigInt?
+  lastSeenUid BigInt?
+  updatedAt   DateTime @updatedAt
+
+  @@unique([mailboxId, path])
+}
+
+model Thread {
+  id            String   @id @default(cuid())
+  mailboxId     String?
+  mailbox       Mailbox? @relation(fields: [mailboxId], references: [id])
+  leadId        String?
+  lead          Lead?    @relation(fields: [leadId], references: [id])
+  campaignId    String?
+  campaign      Campaign? @relation(fields: [campaignId], references: [id])
+  subject       String   @default("")
+  rootMessageId String?  // Message-ID header of the first message
+  participants  String[] @default([])
+  lastMessageAt DateTime @default(now())
+  isLinkedToLead Boolean @default(false)
+  archived      Boolean  @default(false)
+  needsAttention Boolean @default(false)
+  labels        String[] @default([]) // interested, out_of_office, bounce, unsubscribe, unmatched, unrelated...
+  createdAt     DateTime @default(now())
+
+  messages      Message[]
+
+  @@index([lastMessageAt])
+  @@index([leadId])
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageState {
+  DRAFT
+  QUEUED
+  SENDING
+  SENT        // handed to provider
+  ACCEPTED    // provider accepted (SMTP 250 / API id)
+  DELIVERED   // confirmed by provider event
+  BOUNCED
+  FAILED
+  RECEIVED    // inbound
+}
+
+enum ReplyClass {
+  NONE
+  INTERESTED
+  INFO_REQUEST
+  PRICING_REQUEST
+  MEETING_REQUEST
+  HAS_PROVIDER
+  NOT_INTERESTED
+  UNSUBSCRIBE
+  OUT_OF_OFFICE
+  BOUNCE
+  UNRELATED
+  UNCERTAIN
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  threadId       String?
+  thread         Thread?  @relation(fields: [threadId], references: [id])
+  mailboxId      String?
+  mailbox        Mailbox? @relation(fields: [mailboxId], references: [id])
+  leadId         String?
+  lead           Lead?    @relation(fields: [leadId], references: [id])
+  contactId      String?
+  contact        Contact? @relation(fields: [contactId], references: [id])
+  campaignId     String?
+  campaign       Campaign? @relation(fields: [campaignId], references: [id])
+
+  direction      MessageDirection
+  state          MessageState @default(DRAFT)
+  fromAddr       String   @default("")
+  toAddrs        String[] @default([])
+  ccAddrs        String[] @default([])
+  subject        String   @default("")
+  bodyText       String   @default("")
+  bodyHtml       String   @default("") // sanitized at render; stored as received/generated
+  snippet        String   @default("")
+
+  messageIdHeader String? @unique
+  inReplyTo      String?
+  referencesHeader String?
+
+  imapUid        BigInt?
+  imapFolder     String?
+
+  providerMessageId String?
+  idempotencyKey String?  @unique
+
+  classification ReplyClass @default(NONE)
+  isAutoReply    Boolean  @default(false)
+  followUpStep   Int      @default(0)
+
+  sentAt         DateTime?
+  receivedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  attachments    Attachment[]
+  scheduledAction ScheduledAction? @relation(fields: [scheduledActionId], references: [id])
+  scheduledActionId String? @unique
+
+  @@index([threadId])
+  @@index([direction, state])
+  @@index([leadId])
+  @@index([imapFolder, imapUid])
+}
+
+model Attachment {
+  id          String  @id @default(cuid())
+  messageId   String
+  message     Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  filename    String  @default("")
+  contentType String  @default("")
+  size        Int     @default(0)
+  contentId   String?
+  storagePath String  @default("")
+}
+
+// ---------------------------------------------------------------------------
+// Follow-ups & scheduled actions
+// ---------------------------------------------------------------------------
+
+model FollowUpSequence {
+  id        String   @id @default(cuid())
+  name      String
+  enabled   Boolean  @default(true)
+  steps     FollowUpStep[]
+  campaigns Campaign[]
+  createdAt DateTime @default(now())
+}
+
+model FollowUpStep {
+  id          String   @id @default(cuid())
+  sequenceId  String
+  sequence    FollowUpSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  stepOrder   Int
+  delayHours  Int      @default(72)
+  instruction String   @default("")
+
+  @@unique([sequenceId, stepOrder])
+}
+
+enum ActionType {
+  DISCOVER
+  RESEARCH
+  VERIFY
+  DRAFT_OUTREACH
+  SEND_OUTREACH
+  FOLLOW_UP
+  CLASSIFY_REPLY
+  DRAFT_REPLY
+}
+
+enum ActionStatus {
+  SCHEDULED
+  RUNNING
+  DONE
+  CANCELLED
+  FAILED
+  PAUSED
+  BLOCKED
+}
+
+model ScheduledAction {
+  id            String   @id @default(cuid())
+  type          ActionType
+  status        ActionStatus @default(SCHEDULED)
+  leadId        String?
+  lead          Lead?    @relation(fields: [leadId], references: [id])
+  contactId     String?
+  contact       Contact? @relation(fields: [contactId], references: [id])
+  campaignId    String?
+  campaign      Campaign? @relation(fields: [campaignId], references: [id])
+  mailboxId     String?
+  mailbox       Mailbox? @relation(fields: [mailboxId], references: [id])
+
+  runAt         DateTime @default(now())
+  attempts      Int      @default(0)
+  maxAttempts   Int      @default(3)
+  payload       Json?
+  idempotencyKey String? @unique
+  bullJobId     String?
+  lastError     String   @default("")
+  blockedReason String   @default("")
+  nextEligibleAt DateTime?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  message       Message?
+
+  @@index([status, runAt])
+  @@index([type])
+  @@index([leadId])
+}
+
+// ---------------------------------------------------------------------------
+// Suppression
+// ---------------------------------------------------------------------------
+
+enum SuppressionReason {
+  HARD_BOUNCE
+  UNSUBSCRIBE
+  COMPLAINT
+  MANUAL
+  INVALID
+  REQUESTED_HUMAN
+}
+
+model SuppressionRecord {
+  id          String   @id @default(cuid())
+  email       String   @unique // lowercased canonical address
+  reason      SuppressionReason
+  source      String   @default("manual") // smtp | dsn | webhook | verifier | manual
+  eventDetail String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([reason])
+}
+
+// ---------------------------------------------------------------------------
+// Provider connections & model permissions
+// ---------------------------------------------------------------------------
+
+enum ConnectionKind {
+  AI_OPENAI
+  AI_ANTHROPIC
+  AI_CLAUDE_CODE
+  SEARCH
+  EMAIL_VERIFIER
+}
+
+enum ConnectionStatus {
+  UNCONFIGURED
+  CONNECTED
+  ERROR
+}
+
+model ProviderConnection {
+  id          String   @id @default(cuid())
+  kind        ConnectionKind
+  name        String
+  status      ConnectionStatus @default(UNCONFIGURED)
+  configEnc   String?  // encrypted JSON (api keys etc.)
+  connectionType String @default("") // e.g. "api" | "cli-subscription"
+  allowedTasks String[] @default([])
+  meta        Json?    // usage tracking, cost settings, discovered models
+  lastError   String   @default("")
+  lastTestedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  models      ModelPermission[]
+  assignments ModelAssignment[]
+
+  @@unique([kind, name])
+}
+
+model ModelPermission {
+  id           String @id @default(cuid())
+  connectionId String
+  connection   ProviderConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  modelId      String
+  allowed      Boolean @default(false)
+  inputCostPerMTok  Decimal? @db.Decimal(10, 4)
+  outputCostPerMTok Decimal? @db.Decimal(10, 4)
+
+  @@unique([connectionId, modelId])
+}
+
+enum AiTask {
+  LEAD_QUALIFICATION
+  WEBSITE_ANALYSIS
+  OUTREACH_WRITING
+  REPLY_CLASSIFICATION
+  REPLY_DRAFTING
+  ASSISTANT
+}
+
+model ModelAssignment {
+  id           String @id @default(cuid())
+  task         AiTask
+  campaignId   String? // null = global default
+  campaign     Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  connectionId String
+  connection   ProviderConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  modelId      String
+
+  @@unique([task, campaignId])
+}
+
+// ---------------------------------------------------------------------------
+// Budgets & usage
+// ---------------------------------------------------------------------------
+
+enum UsageKind {
+  AI
+  VERIFICATION
+  EMAIL
+  LEAD
+  RESEARCH
+}
+
+// Atomic counters per scope/day/kind. Reservations check-and-increment inside a tx.
+model BudgetCounter {
+  id          String   @id @default(cuid())
+  scope       String   // "GLOBAL" or campaignId
+  day         String   // YYYY-MM-DD in reporting timezone
+  kind        UsageKind
+  reservedCost Decimal @default(0) @db.Decimal(12, 4)
+  spentCost   Decimal  @default(0) @db.Decimal(12, 4)
+  reservedCount Int    @default(0)
+  spentCount  Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([scope, day, kind])
+}
+
+enum ReservationStatus {
+  RESERVED
+  COMMITTED
+  RELEASED
+}
+
+model UsageReservation {
+  id           String   @id @default(cuid())
+  kind         UsageKind
+  scope        String   @default("GLOBAL")
+  day          String
+  estimatedCost Decimal @default(0) @db.Decimal(12, 4)
+  estimatedCount Int    @default(1)
+  actualCost   Decimal? @db.Decimal(12, 4)
+  status       ReservationStatus @default(RESERVED)
+  reference    String   @default("") // job / action id
+  provider     String   @default("")
+  model        String   @default("")
+  note         String   @default("")
+  createdAt    DateTime @default(now())
+  committedAt  DateTime?
+
+  @@index([status])
+  @@index([reference])
+}
+
+model UsageLedger {
+  id          String   @id @default(cuid())
+  day         String
+  kind        UsageKind
+  scope       String   @default("GLOBAL")
+  provider    String   @default("")
+  model       String   @default("")
+  requests    Int      @default(0)
+  tokensIn    Int      @default(0)
+  tokensOut   Int      @default(0)
+  cost        Decimal  @default(0) @db.Decimal(12, 4)
+  count       Int      @default(0) // emails / verifications / leads
+  createdAt   DateTime @default(now())
+
+  @@index([day, kind])
+}
+
+// ---------------------------------------------------------------------------
+// Jobs (visibility mirror) & audit
+// ---------------------------------------------------------------------------
+
+model JobRecord {
+  id         String   @id @default(cuid())
+  queue      String
+  name       String
+  bullJobId  String?
+  status     String   @default("queued")
+  attempts   Int      @default(0)
+  data       Json?
+  result     Json?
+  error      String   @default("")
+  createdAt  DateTime @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([queue, status])
+}
+
+model AuditEvent {
+  id         String   @id @default(cuid())
+  actor      String   @default("system") // owner | assistant | worker | system
+  action     String
+  entityType String   @default("")
+  entityId   String   @default("")
+  summary    String   @default("")
+  evidence   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+
+// ---------------------------------------------------------------------------
+// Global settings (singleton)
+// ---------------------------------------------------------------------------
+
+model GlobalSettings {
+  id                String  @id @default("singleton")
+  timezone          String  @default("Asia/Karachi")
+  emergencyPause    Boolean @default(false)
+
+  dailySpendLimit   Decimal @default(10) @db.Decimal(10, 2)
+  monthlySpendLimit Decimal @default(200) @db.Decimal(10, 2)
+  dailyAiRequests   Int     @default(500)
+  dailyTokens       Int     @default(2000000)
+  dailyNewLeads     Int     @default(50)
+  dailyResearch     Int     @default(100)
+  dailyEmail        Int     @default(50)
+  hourlyEmail       Int     @default(15)
+  maxFollowUps      Int     @default(2)
+  maxPagesPerLead   Int     @default(5)
+  maxRetriesPerJob  Int     @default(3)
+  maxJobSeconds     Int     @default(120)
+
+  verificationStaleDays Int @default(30)
+
+  unsubscribeFooter String @default("If you'd prefer not to hear from me, just reply with \"unsubscribe\" or use this link: {{unsubscribe_url}}")
+
+  retentionDays     Int     @default(0) // 0 = keep forever
+  blockRemoteImages Boolean @default(true)
+
+  updatedAt         DateTime @updatedAt
+}
