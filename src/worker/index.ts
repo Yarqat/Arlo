@@ -68,8 +68,10 @@ async function tick() {
     // 3) Automatic campaign pipeline
     const campaigns = await prisma.campaign.findMany({ where: { status: "ACTIVE", outreachMode: "AUTOMATIC" } });
     for (const c of campaigns) {
-      // discover (light, once per tick)
-      await enqueue("discovery", "discover", { campaignId: c.id, limit: c.maxNewLeadsPerDay ?? 20 });
+      // discover at most twice per hour (daily lead budget also caps volume)
+      if (minute === 3 || minute === 33) {
+        await enqueue("discovery", "discover", { campaignId: c.id, limit: c.maxNewLeadsPerDay ?? 20 });
+      }
 
       // research NEW leads with a website
       const toResearch = await prisma.lead.findMany({
@@ -98,8 +100,9 @@ async function tick() {
       for (const l of toDraft) await enqueue("outreach", "draft-lead", { leadId: l.id });
 
       // send clean step-0 drafts (AUTOMATIC only). Preflight enforces all guards.
+      // QUEUED = previously blocked (e.g. outside hours); retry when eligible again.
       const drafts = await prisma.message.findMany({
-        where: { campaignId: c.id, direction: "OUTBOUND", state: "DRAFT", followUpStep: 0 },
+        where: { campaignId: c.id, direction: "OUTBOUND", state: { in: ["DRAFT", "QUEUED"] }, followUpStep: 0 },
         take: 15,
       });
       for (const m of drafts) {
