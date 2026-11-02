@@ -64,6 +64,7 @@ export default async function CampaignDetail({ params }: { params: Promise<{ id:
         sequences={sequences}
         allowUnverified={campaign.allowUnverified}
         autoDiscover={campaign.autoDiscover}
+        offer={campaign.offer}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">

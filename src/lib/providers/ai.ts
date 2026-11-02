@@ -134,17 +134,27 @@ const anthropic: Adapter = {
       max_tokens: opts.maxTokens ?? 1024,
       ...(opts.system ? { system: opts.system } : {}),
       messages: opts.messages.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+      // The newest Claude models (Claude 5 family) enable extended thinking by
+      // default, which consumes the whole max_tokens budget on reasoning and can
+      // leave no room for the actual answer. Disable it so max_tokens is the
+      // visible-output budget. Retried away for models that don't accept it.
+      thinking: { type: "disabled" },
     };
-    // The newest Claude models (Claude 5 family) reject a custom `temperature`.
-    // Send it when asked, but retry once without it if the model refuses.
+    // Those same models also reject a custom `temperature`. Send it when asked,
+    // but drop it (and/or `thinking`) and retry once if the model refuses.
     if (opts.temperature != null) payload.temperature = opts.temperature;
 
     let { res, json } = await fetchJson(`${base}/messages`, { method: "POST", headers, body: JSON.stringify(payload) });
     let j = json as any;
-    if (!res.ok && "temperature" in payload && /temperature/i.test(j?.error?.message || "")) {
-      delete payload.temperature;
-      ({ res, json } = await fetchJson(`${base}/messages`, { method: "POST", headers, body: JSON.stringify(payload) }));
-      j = json as any;
+    if (!res.ok) {
+      const msg = j?.error?.message || "";
+      let changed = false;
+      if ("temperature" in payload && /temperature/i.test(msg)) { delete payload.temperature; changed = true; }
+      if ("thinking" in payload && /thinking/i.test(msg)) { delete payload.thinking; changed = true; }
+      if (changed) {
+        ({ res, json } = await fetchJson(`${base}/messages`, { method: "POST", headers, body: JSON.stringify(payload) }));
+        j = json as any;
+      }
     }
     if (!res.ok) throw new ProviderError(j?.error?.message || `Anthropic error ${res.status}`);
     const text = (j.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");

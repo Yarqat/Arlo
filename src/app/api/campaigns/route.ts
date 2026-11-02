@@ -16,6 +16,7 @@ const briefFields = {
   servicesOffered: z.array(z.string()).optional(),
   positiveCriteria: z.string().max(2000).optional(),
   exclusions: z.string().max(2000).optional(),
+  offer: z.string().max(2000).optional(),
   requiredContactFields: z.array(z.string()).optional(),
   briefRaw: z.string().max(4000).optional(),
   maxNewLeadsPerDay: z.coerce.number().int().min(0).optional(),
@@ -37,6 +38,7 @@ const schema = z.discriminatedUnion("action", [
     followUpSequenceId: z.string().nullable().optional(),
     allowUnverified: z.boolean().optional(),
     autoDiscover: z.boolean().optional(),
+    offer: z.string().max(2000).optional(),
   }),
   z.object({ action: z.literal("discover"), id: z.string() }),
 ]);
@@ -87,6 +89,7 @@ export const POST = ownerRoute(async (req) => {
         servicesOffered: b.servicesOffered ?? [],
         positiveCriteria: b.positiveCriteria ?? "",
         exclusions: b.exclusions ?? "",
+        offer: b.offer ?? "",
         requiredContactFields: b.requiredContactFields ?? ["email"],
         briefRaw: b.briefRaw ?? "",
         maxNewLeadsPerDay: b.maxNewLeadsPerDay ?? 20,
@@ -114,6 +117,7 @@ export const POST = ownerRoute(async (req) => {
     if (b.followUpSequenceId !== undefined) data.followUpSequenceId = b.followUpSequenceId;
     if (b.allowUnverified !== undefined) data.allowUnverified = b.allowUnverified;
     if (b.autoDiscover !== undefined) data.autoDiscover = b.autoDiscover;
+    if (b.offer !== undefined) data.offer = b.offer;
     await prisma.campaign.update({ where: { id: b.id }, data });
     await audit("owner", "campaign_control", "Campaign", b.id, `Updated ${campaign.name}: ${JSON.stringify(data)}`);
     return NextResponse.json({ ok: true });

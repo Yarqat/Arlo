@@ -3,7 +3,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Field, Select } from "@/components/ui/input";
+import { Field, Select, Textarea } from "@/components/ui/input";
 import { Alert } from "@/components/ui/misc";
 import { Switch } from "@/components/ui/interactive";
 
@@ -13,7 +13,7 @@ async function post(body: unknown) {
 }
 
 export function CampaignControls({
-  id, status, mode, sendingMailboxId, followUpSequenceId, mailboxes, sequences, allowUnverified, autoDiscover,
+  id, status, mode, sendingMailboxId, followUpSequenceId, mailboxes, sequences, allowUnverified, autoDiscover, offer,
 }: {
   id: string;
   status: string;
@@ -24,10 +24,13 @@ export function CampaignControls({
   sequences: { id: string; name: string }[];
   allowUnverified: boolean;
   autoDiscover: boolean;
+  offer: string;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [confirmAuto, setConfirmAuto] = React.useState(false);
+  const [offerText, setOfferText] = React.useState(offer);
+  const [offerSaved, setOfferSaved] = React.useState(false);
 
   async function control(body: Record<string, unknown>) {
     setBusy(true);
@@ -92,6 +95,21 @@ export function CampaignControls({
               ))}
             </Select>
           </Field>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <Field label="Your offer — what every email pitches">
+            <Textarea
+              value={offerText}
+              onChange={(e) => { setOfferText(e.target.value); setOfferSaved(false); }}
+              rows={2}
+              placeholder="e.g. A faster, modern website with an online enquiry/quote form. Open by asking who currently looks after their website."
+            />
+          </Field>
+          <div className="mt-2 flex items-center gap-3">
+            <Button size="sm" variant="secondary" disabled={busy} onClick={async () => { await control({ offer: offerText }); setOfferSaved(true); }}>Save offer</Button>
+            {offerSaved && <span className="text-xs text-success">Saved — new drafts will use this.</span>}
+          </div>
         </div>
 
         <div className="space-y-3 border-t border-border pt-4">

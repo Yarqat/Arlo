@@ -308,6 +308,9 @@ model Campaign {
   // When false, the worker stops auto-discovering new leads for this campaign
   // but still researches/verifies/drafts the leads it already has.
   autoDiscover  Boolean @default(true)
+  // What this campaign pitches — the offer + call to action that every draft is
+  // built around (e.g. "a faster website with an online enquiry/quote form").
+  offer         String  @default("")
   timezone      String  @default("Asia/Karachi")
   businessHours Json?   // { days:[1..5], start:"09:00", end:"17:00" }
 
