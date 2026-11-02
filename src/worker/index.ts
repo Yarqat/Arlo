@@ -154,8 +154,10 @@ async function tick() {
       const toDraft = await prisma.lead.findMany({
         where: {
           primaryCampaignId: c.id,
-          stage: { in: ["QUALIFIED"] },
-          contacts: { some: { verifications: { some: { status: "DELIVERABLE" } } } },
+          stage: { in: ["QUALIFIED", "READY_FOR_REVIEW"] },
+          // Normally require a deliverable contact; if the owner allows unverified
+          // on this campaign, any contact is enough.
+          contacts: c.allowUnverified ? { some: {} } : { some: { verifications: { some: { status: "DELIVERABLE" } } } },
           messages: { none: { direction: "OUTBOUND", followUpStep: 0 } },
         },
         take: 10,
