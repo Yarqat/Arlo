@@ -32,6 +32,9 @@ The core idea: **the AI proposes, deterministic code enforces.** Suppression, bu
 ### Campaigns — discover → research → verify → draft → approve → send
 ![Campaign detail](docs/screenshots/campaign.svg)
 
+### Inbox — replies, bounces and opt-outs, each in its own view
+![Inbox](docs/screenshots/inbox.svg)
+
 ### Reports — honest metrics, explicitly defined
 ![Reports](docs/screenshots/reports.svg)
 

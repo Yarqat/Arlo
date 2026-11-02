@@ -216,6 +216,45 @@ function leads() {
   return frame("Leads", "Leads", "One business = one lead — deduped by domain · sample data", s, "1,284 leads");
 }
 
+// ---------- Inbox ----------
+function inbox() {
+  let s = "";
+  // Tab row (with live counts) — mirrors the real filtered views.
+  const tabs = [["All", null], ["Replies", 12], ["Sent", 288], ["Needs attention", 3], ["Interested", 7], ["Bounces", null], ["Unsubscribes", 21]];
+  let tx = CX;
+  const ty = 110;
+  tabs.forEach(([label, count], i) => {
+    const on = i === 1; // Replies active
+    const w = label.length * 7.2 + (count != null ? 30 : 0) + 26;
+    s += rect(tx, ty, w, 34, { r: 9, fill: on ? C.primary : C.surface, stroke: on ? "none" : C.border });
+    s += text(tx + 14, ty + 22, label, { size: 12.5, fill: on ? "#fff" : C.fg, weight: on ? 600 : 500 });
+    if (count != null) s += text(tx + w - 14, ty + 22, n(count), { size: 11.5, fill: on ? "#dfe3ff" : C.muted, weight: 600, anchor: "end" });
+    tx += w + 8;
+  });
+  // Thread list
+  const ly = 162, lw = CW;
+  s += rect(CX, ly, lw, 578, { r: 10 });
+  const threads = [
+    ["Re: A quick note about your exhaust-cleaning enquiry form", "Oahu Hood Cleaning", "Yes — interested. Could you send a couple of times this week?", "interested", "success", "2m"],
+    ["Re: Two ideas for your Austin service pages", "MetroVac Exhaust Co.", "This looks useful. What would something like this cost?", "needs attention", "warning", "20m"],
+    ["Re: Making it easier to book a septic pump-out online", "Pacific Pumping & Septic", "Can we talk Tuesday afternoon? Happy to jump on a quick call.", "interested", "success", "1h"],
+    ["Automatic reply: Out of office", "Northgate Septic Ltd", "I'm away until Monday with limited access to email…", "out of office", "info", "2h"],
+    ["Please remove me", "CleanVent Commercial", "Not relevant for us — please unsubscribe me from this list.", "unsubscribe", "muted", "3h"],
+    ["Mail delivery failed: returning message to sender", "mailer-daemon", "550 5.1.1 recipient address rejected: user unknown", "bounce", "danger", "5h"],
+  ];
+  const toneMap = { success: [C.successSoft, C.success], warning: [C.warningSoft, C.warning], info: [C.infoSoft, C.info], muted: [C.surface2, C.muted], danger: [C.dangerSoft, C.danger] };
+  threads.forEach((t, i) => {
+    const y = ly + 18 + i * 93;
+    s += text(CX + 24, y + 24, t[0].length > 68 ? t[0].slice(0, 67) + "…" : t[0], { size: 14, fill: C.fg, weight: 600 });
+    const [lb, lf] = toneMap[t[4]];
+    s += pill(CX + 24, y + 38, t[3], lb, lf);
+    s += text(CX + 24, y + 74, t[1] + " — " + t[2], { size: 12.5, fill: C.muted });
+    s += text(CX + lw - 24, y + 24, t[5], { size: 12, fill: C.muted2, anchor: "end" });
+    if (i < threads.length - 1) s += `<line x1="${CX + 24}" y1="${y + 86}" x2="${CX + lw - 24}" y2="${y + 86}" stroke="${C.border}"/>`;
+  });
+  return frame("Inbox", "Inbox", "Every conversation, matched to its lead — replies, bounces and opt-outs, each in its own view · sample data", s, "4 new");
+}
+
 // ---------- 4) Campaign detail ----------
 function campaign() {
   let s = "";
@@ -224,6 +263,7 @@ function campaign() {
   s += text(CX + 24, 140, "Commercial cleaning & industrial services — US/UK/CA/AU", { size: 18, weight: 700 });
   s += pill(CX + 24, 158, "Active", C.successSoft, C.success, 64);
   s += pill(CX + 96, 158, "Approve-first", C.infoSoft, C.info, 110);
+  s += pill(CX + 214, 158, "A/B: 2 subjects", C.accentSoft, C.primary, 120);
   s += text(CX + 24, 206, "Nothing sends without your approval. Suppression, verification, budgets and schedule all enforced.", { size: 12.5, fill: C.muted });
   const stats = [["Leads", "412"], ["Verified", "286"], ["Drafts ready", "37"], ["Sent", "288"], ["Replies", "64"]];
   const gap = 20, cw = (CW - gap * 4) / 5;
@@ -253,7 +293,7 @@ function campaign() {
 // ---------- 5) Reports ----------
 function reports() {
   let s = "";
-  const kpis = [["Emails sent", "2,884", "confirmed accepted"], ["Reply rate", "22.4%", "646 / 2,884"], ["Positive replies", "18%", "of all replies"], ["Meetings booked", "41", "from 7 campaigns"]];
+  const kpis = [["Emails sent", "2,884", "confirmed accepted"], ["Reply rate", "22.4%", "646 / 2,884"], ["Link clicks", "312", "from 1,120 emails"], ["Meetings booked", "41", "from 7 campaigns"]];
   const gap = 20, cw = (CW - gap * 3) / 4;
   kpis.forEach(([l, v, sub], i) => { const x = CX + i * (cw + gap), y = 108; s += rect(x, y, cw, 104); s += text(x + 20, y + 34, l, { size: 13, fill: C.muted, weight: 500 }); s += text(x + 20, y + 74, v, { size: 30, weight: 700 }); s += text(x + 20, y + 94, sub, { size: 11.5, fill: C.muted }); });
   // bar chart: sends & replies over 8 weeks
@@ -271,11 +311,11 @@ function reports() {
     s += rect(x + bw + 6, base - rh, bw, rh, { r: 4, fill: C.success, stroke: "none" });
     s += text(x + bw, base + 20, "W" + (i + 1), { size: 11.5, fill: C.muted, anchor: "middle" });
   });
-  s += text(CX + 24, chy + 352, "Every metric shows its numerator and denominator. No open-pixels; delivery is only counted when a provider confirms it.", { size: 11.5, fill: C.muted2 });
+  s += text(CX + 24, chy + 352, "Click tracking only — no open pixels, no fabricated metrics. Delivery is counted only when a provider confirms it.", { size: 11.5, fill: C.muted2 });
   return frame("Reports", "Reports", "Honest metrics, explicitly defined · sample data", s, "Last 8 weeks");
 }
 
-const files = { "overview": overview(), "assistant": assistant(), "leads": leads(), "campaign": campaign(), "reports": reports() };
+const files = { "overview": overview(), "assistant": assistant(), "leads": leads(), "inbox": inbox(), "campaign": campaign(), "reports": reports() };
 for (const [name, svg] of Object.entries(files)) {
   writeFileSync(join(OUT, name + ".svg"), svg);
   console.log("wrote", name + ".svg");
