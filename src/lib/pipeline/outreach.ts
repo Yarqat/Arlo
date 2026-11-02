@@ -33,13 +33,18 @@ function unsubscribeUrl(token: string) {
 }
 
 /** Pick the most eligible contact for a lead given campaign allowances. */
-async function pickContact(leadId: string, allowCatchAll: boolean, allowUnknown: boolean): Promise<Contact | null> {
+async function pickContact(leadId: string, allowCatchAll: boolean, allowUnknown: boolean, allowUnverified: boolean): Promise<Contact | null> {
   const contacts = await prisma.contact.findMany({
     where: { leadId },
     include: { verifications: { orderBy: { checkedAt: "desc" }, take: 1 } },
     orderBy: [{ isPrimary: "desc" }, { emailType: "asc" }],
   });
-  const rank = (s?: string) => (s === "DELIVERABLE" ? 3 : s === "CATCH_ALL" && allowCatchAll ? 2 : s === "UNKNOWN" && allowUnknown ? 1 : 0);
+  const rank = (s?: string) =>
+    s === "DELIVERABLE" ? 3
+    : s === "CATCH_ALL" && allowCatchAll ? 2
+    : s === "UNKNOWN" && allowUnknown ? 1
+    : allowUnverified ? 0.5 // owner opted to proceed without a passing verification
+    : 0;
   const eligible = contacts
     .map((c) => ({ c, r: rank(c.verifications[0]?.status) }))
     .filter((x) => x.r > 0)
@@ -61,8 +66,8 @@ export async function draftOutreach(leadId: string, opts: { actor?: string } = {
   });
   if (!lead) return { ok: false, reason: "Lead not found" };
   const campaign = lead.primaryCampaign;
-  const contact = await pickContact(leadId, campaign?.allowCatchAll ?? false, campaign?.allowUnknown ?? false);
-  if (!contact) return { ok: false, reason: "No eligible verified contact" };
+  const contact = await pickContact(leadId, campaign?.allowCatchAll ?? false, campaign?.allowUnknown ?? false, campaign?.allowUnverified ?? false);
+  if (!contact) return { ok: false, reason: "No contact to draft to — add an email on the lead, or enable 'Allow unverified contacts' if you have no verifier." };
 
   // Idempotent: one first-touch draft per contact.
   const idempotencyKey = `outreach:${leadId}:${contact.id}:step0`;

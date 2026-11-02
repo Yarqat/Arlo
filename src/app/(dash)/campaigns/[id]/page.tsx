@@ -62,6 +62,8 @@ export default async function CampaignDetail({ params }: { params: Promise<{ id:
         followUpSequenceId={campaign.followUpSequenceId}
         mailboxes={mailboxes}
         sequences={sequences}
+        allowUnverified={campaign.allowUnverified}
+        autoDiscover={campaign.autoDiscover}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">

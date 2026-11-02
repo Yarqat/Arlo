@@ -52,17 +52,21 @@ export async function preflight(ctx: Ctx): Promise<PreflightResult> {
   });
   const allowCatchAll = ctx.campaign?.allowCatchAll ?? false;
   const allowUnknown = ctx.campaign?.allowUnknown ?? false;
-  if (!latest) return { ok: false, reason: "Contact is not verified" };
-  const staleMs = settings.verificationStaleDays * 86400_000;
-  if (Date.now() - latest.checkedAt.getTime() > staleMs) return { ok: false, reason: "Verification is stale; re-verify" };
-  if (latest.status === "DELIVERABLE") {
-    /* ok */
-  } else if (latest.status === "CATCH_ALL" && allowCatchAll) {
-    /* ok */
-  } else if (latest.status === "UNKNOWN" && allowUnknown) {
-    /* ok */
-  } else {
-    return { ok: false, reason: `Contact status ${latest.status} is not eligible for automatic sending` };
+  const allowUnverified = ctx.campaign?.allowUnverified ?? false;
+  // Owner override: send without a passing verification (e.g. no verifier set up).
+  if (!allowUnverified) {
+    if (!latest) return { ok: false, reason: "Contact is not verified" };
+    const staleMs = settings.verificationStaleDays * 86400_000;
+    if (Date.now() - latest.checkedAt.getTime() > staleMs) return { ok: false, reason: "Verification is stale; re-verify" };
+    if (latest.status === "DELIVERABLE") {
+      /* ok */
+    } else if (latest.status === "CATCH_ALL" && allowCatchAll) {
+      /* ok */
+    } else if (latest.status === "UNKNOWN" && allowUnknown) {
+      /* ok */
+    } else {
+      return { ok: false, reason: `Contact status ${latest.status} is not eligible for automatic sending` };
+    }
   }
 
   // Sending schedule (business hours in campaign/mailbox timezone).

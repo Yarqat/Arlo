@@ -302,6 +302,12 @@ model Campaign {
   // Sending controls
   allowCatchAll Boolean @default(false)
   allowUnknown  Boolean @default(false)
+  // Owner override: draft/send to contacts that aren't verified deliverable
+  // (e.g. when no verifier is connected). Off by default.
+  allowUnverified Boolean @default(false)
+  // When false, the worker stops auto-discovering new leads for this campaign
+  // but still researches/verifies/drafts the leads it already has.
+  autoDiscover  Boolean @default(true)
   timezone      String  @default("Asia/Karachi")
   businessHours Json?   // { days:[1..5], start:"09:00", end:"17:00" }
 

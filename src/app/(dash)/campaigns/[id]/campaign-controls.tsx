@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Field, Select } from "@/components/ui/input";
 import { Alert } from "@/components/ui/misc";
+import { Switch } from "@/components/ui/interactive";
 
 async function post(body: unknown) {
   const res = await fetch("/api/campaigns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -12,7 +13,7 @@ async function post(body: unknown) {
 }
 
 export function CampaignControls({
-  id, status, mode, sendingMailboxId, followUpSequenceId, mailboxes, sequences,
+  id, status, mode, sendingMailboxId, followUpSequenceId, mailboxes, sequences, allowUnverified, autoDiscover,
 }: {
   id: string;
   status: string;
@@ -21,6 +22,8 @@ export function CampaignControls({
   followUpSequenceId: string | null;
   mailboxes: { id: string; senderName: string; email: string; status: string }[];
   sequences: { id: string; name: string }[];
+  allowUnverified: boolean;
+  autoDiscover: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -89,6 +92,21 @@ export function CampaignControls({
               ))}
             </Select>
           </Field>
+        </div>
+
+        <div className="space-y-3 border-t border-border pt-4">
+          <label className="flex items-start justify-between gap-4">
+            <span className="text-sm">Keep finding new leads
+              <span className="mt-0.5 block text-xs text-muted">Turn off to stop discovery but keep researching, verifying and drafting the leads you already have.</span>
+            </span>
+            <Switch checked={autoDiscover} onCheckedChange={(v) => control({ autoDiscover: v })} disabled={busy} />
+          </label>
+          <label className="flex items-start justify-between gap-4">
+            <span className="text-sm">Allow unverified contacts
+              <span className="mt-0.5 block text-xs text-muted">Draft and send even without a passing email verification. Use only if you have no verifier connected — unverified addresses can bounce.</span>
+            </span>
+            <Switch checked={allowUnverified} onCheckedChange={(v) => control({ allowUnverified: v })} disabled={busy} />
+          </label>
         </div>
 
         {confirmAuto && (

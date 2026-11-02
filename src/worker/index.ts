@@ -130,8 +130,9 @@ async function tick() {
     //    budgets (Settings → Budgets).
     const campaigns = await prisma.campaign.findMany({ where: { status: "ACTIVE" } });
     for (const c of campaigns) {
-      // keep discovering roughly every 10 minutes while budget/room remains
-      if (minute % 10 === 3) {
+      // keep discovering roughly every 10 minutes while budget/room remains,
+      // unless the owner turned off "keep finding new leads" for this campaign
+      if (c.autoDiscover && (c.maxNewLeadsPerDay ?? 20) > 0 && minute % 10 === 3) {
         await enqueue("discovery", "discover", { campaignId: c.id, limit: c.maxNewLeadsPerDay ?? 20 });
       }
 

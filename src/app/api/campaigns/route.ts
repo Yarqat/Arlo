@@ -35,6 +35,8 @@ const schema = z.discriminatedUnion("action", [
     outreachMode: z.enum(["DRAFT_ONLY", "APPROVE_FIRST", "AUTOMATIC"]).optional(),
     sendingMailboxId: z.string().nullable().optional(),
     followUpSequenceId: z.string().nullable().optional(),
+    allowUnverified: z.boolean().optional(),
+    autoDiscover: z.boolean().optional(),
   }),
   z.object({ action: z.literal("discover"), id: z.string() }),
 ]);
@@ -110,6 +112,8 @@ export const POST = ownerRoute(async (req) => {
     if (b.outreachMode) data.outreachMode = b.outreachMode;
     if (b.sendingMailboxId !== undefined) data.sendingMailboxId = b.sendingMailboxId;
     if (b.followUpSequenceId !== undefined) data.followUpSequenceId = b.followUpSequenceId;
+    if (b.allowUnverified !== undefined) data.allowUnverified = b.allowUnverified;
+    if (b.autoDiscover !== undefined) data.autoDiscover = b.autoDiscover;
     await prisma.campaign.update({ where: { id: b.id }, data });
     await audit("owner", "campaign_control", "Campaign", b.id, `Updated ${campaign.name}: ${JSON.stringify(data)}`);
     return NextResponse.json({ ok: true });
