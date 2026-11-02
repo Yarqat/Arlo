@@ -3,9 +3,7 @@ import { prisma } from "@/lib/db";
 import { PageHeader, EmptyState } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
-import { Megaphone, Plus } from "lucide-react";
+import { Megaphone, Plus, ChevronRight } from "lucide-react";
 import { titleCase } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
@@ -48,33 +46,31 @@ export default async function CampaignsPage() {
           action={<Link href="/campaigns/new"><Button>Create your first campaign</Button></Link>}
         />
       ) : (
-        <Card className="overflow-hidden p-0">
-          <Table>
-            <THead>
-              <TR>
-                <TH>Campaign</TH>
-                <TH>Status</TH>
-                <TH>Mode</TH>
-                <TH>Leads</TH>
-                <TH>Messages</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {campaigns.map((c) => (
-                <TR key={c.id}>
-                  <TD>
-                    <Link href={`/campaigns/${c.id}`} className="font-medium hover:text-primary">{c.name}</Link>
-                    <p className="text-xs text-muted-2">{c.businessType || "—"}</p>
-                  </TD>
-                  <TD><Badge tone={statusTone[c.status]}>{titleCase(c.status)}</Badge></TD>
-                  <TD className="text-muted">{modeLabel[c.outreachMode]}</TD>
-                  <TD className="text-muted">{c._count.memberships}</TD>
-                  <TD className="text-muted">{c._count.messages}</TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
-        </Card>
+        <div className="grid gap-3">
+          {campaigns.map((c) => (
+            <Link
+              key={c.id}
+              href={`/campaigns/${c.id}`}
+              className="block rounded-2xl border border-border bg-surface p-4 shadow-sm transition-shadow hover:shadow-md"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{c.name}</p>
+                  <p className="mt-0.5 line-clamp-1 text-xs text-muted-2">{c.businessType || "—"}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge tone={statusTone[c.status]}>{titleCase(c.status)}</Badge>
+                  <ChevronRight className="size-4 text-muted-2" />
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-muted">
+                <span>Mode <span className="font-medium text-foreground">{modeLabel[c.outreachMode]}</span></span>
+                <span>Leads <span className="font-medium text-foreground">{c._count.memberships.toLocaleString()}</span></span>
+                <span>Messages <span className="font-medium text-foreground">{c._count.messages.toLocaleString()}</span></span>
+              </div>
+            </Link>
+          ))}
+        </div>
       )}
     </div>
   );
