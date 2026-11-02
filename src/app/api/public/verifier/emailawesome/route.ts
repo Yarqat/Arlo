@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    log.info("verifier webhook", { email: v.email_address, jobStatus: v.status, verdict: v.email_address_status, matched: !!rec });
     if (rec) {
       // Only a COMPLETE job carries a verdict; FAILED / FAILED EXPIRED → risky.
       const status =

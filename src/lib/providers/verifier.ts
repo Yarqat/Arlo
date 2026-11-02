@@ -159,6 +159,16 @@ async function submitEmailAwesome(
     }),
   });
   if (!res.ok) throw new Error(json?.message || json?.error || `Email Awesome error ${res.status}`);
+  // The request can be accepted but held — most commonly PENDING_BILLING when the
+  // account has no credits/payment. Surface that as a real error instead of
+  // leaving the contact stuck on "pending" forever.
+  const subStatus = String(json?.status ?? json?.validation?.status ?? "").toUpperCase();
+  if (subStatus.includes("BILLING")) {
+    throw new Error("Email Awesome returned PENDING_BILLING — your Email Awesome account needs credits or a payment method before it will verify. Add billing there, or switch to ZeroBounce / NeverBounce in Settings → Email verifier.");
+  }
+  if (subStatus.startsWith("REJECT") || subStatus === "FAILED" || subStatus === "FAILED EXPIRED") {
+    throw new Error(`Email Awesome rejected the request (${subStatus}).`);
+  }
   const id =
     json?.validation?.id ?? json?.id ?? json?.data?.id ??
     (Array.isArray(json?.accepted_validations) ? json.accepted_validations[0]?.id : null) ?? null;
