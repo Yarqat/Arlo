@@ -19,6 +19,19 @@ function isBounceFrom(from: string, contentType: string): boolean {
   return /mailer-daemon|postmaster|mail delivery|delivery status|delivery subsystem/i.test(from) || /report-type=delivery-status|multipart\/report/i.test(contentType);
 }
 
+// Opt-out phrases in a reply body. Used as a safety net during ingestion so a
+// sender who asks to stop is suppressed immediately — even when the reply never
+// matched a lead and the AI reply classifier (which only runs on matched
+// threads) therefore never saw it.
+const UNSUB_RE = /\bunsubscribe\b|\bopt[-\s]?out\b|remove me|take me off|stop emailing/i;
+
+async function addThreadLabel(threadId: string | null, label: string): Promise<void> {
+  if (!threadId) return;
+  const t = await prisma.thread.findUnique({ where: { id: threadId } });
+  if (!t || t.labels.includes(label)) return;
+  await prisma.thread.update({ where: { id: threadId }, data: { labels: [...t.labels, label] } });
+}
+
 /** Sync new messages from a mailbox INBOX. Idempotent via Message-ID + UID tracking. */
 export async function syncMailbox(mailboxId: string): Promise<{ ok: boolean; newMessages: number; reason?: string }> {
   const mb = await prisma.mailbox.findUnique({ where: { id: mailboxId } });
@@ -100,6 +113,16 @@ export async function syncMailbox(mailboxId: string): Promise<{ ok: boolean; new
           threadId: match.threadId, leadId: match.leadId, contactId: match.contactId, campaignId: match.campaignId,
         });
         newMessages++;
+
+        // Safety net: honour an opt-out in ANY inbound reply, matched or not, so
+        // the sender is suppressed and never emailed again. The AI classifier
+        // below only runs on lead-matched threads, so without this an unmatched
+        // "unsubscribe" would be silently ignored.
+        if (fromAddr && UNSUB_RE.test(bodyText)) {
+          await suppress({ email: fromAddr, reason: "UNSUBSCRIBE", source: "reply", detail: "opt-out keyword in inbound reply" });
+          await addThreadLabel(stored.threadId, "unsubscribe");
+          await prisma.message.update({ where: { id: stored.id }, data: { classification: "UNSUBSCRIBE" } });
+        }
 
         // Classify only genuine human replies that are matched to a lead.
         if (match.leadId && !(autoSubmitted && autoSubmitted.toLowerCase() !== "no")) {
