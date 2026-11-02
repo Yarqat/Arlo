@@ -1,11 +1,17 @@
 import { prisma } from "@/lib/db";
-import { getProfile } from "@/lib/settings";
+import { getProfile, getSettings } from "@/lib/settings";
 import { runAiTask, extractJson } from "@/lib/providers/ai";
 import { suppress } from "@/lib/suppression";
 import { changeStage } from "./stage";
 import { audit } from "@/lib/audit";
 import { ReplyClass } from "@prisma/client";
 import { log } from "@/lib/log";
+import { notifyOwner } from "@/lib/notify";
+
+// Classifications worth pinging the owner about the moment they land.
+const HOT: ReplyClass[] = ["INTERESTED", "PRICING_REQUEST", "MEETING_REQUEST", "INFO_REQUEST"];
+// When one of these arrives and a booking link is configured, offer it in the reply.
+const OFFER_BOOKING: ReplyClass[] = ["INTERESTED", "MEETING_REQUEST"];
 
 const HUMAN_REQUEST = /(speak|talk)\s+(to|with)\s+(a\s+)?(human|person|someone)|stop\s+emailing|real person|take me off/i;
 
@@ -96,8 +102,16 @@ export async function handleReply(messageId: string): Promise<{ ok: boolean; cla
   await prisma.message.update({ where: { id: messageId }, data: { classification } });
   await setThread(msg.threadId, labels, needsAttention);
 
+  const settings = await getSettings();
+
   // 5) Draft a reply for review (never auto-sent by default).
   if (draft && DRAFTABLE.includes(classification) && !humanRequested && msg.contact && msg.leadId) {
+    // If the owner has connected their own Cal.com / Google Calendar link and the
+    // reply is about meeting or interest, offer it so they can self-book.
+    let body = draft;
+    if (settings.bookingUrl && OFFER_BOOKING.includes(classification) && !body.includes(settings.bookingUrl)) {
+      body = `${body.trimEnd()}\n\nIf it's easier, you can grab a time that suits you here: ${settings.bookingUrl}`;
+    }
     const key = `reply:${messageId}`;
     const exists = await prisma.message.findUnique({ where: { idempotencyKey: key } });
     if (!exists) {
@@ -111,14 +125,35 @@ export async function handleReply(messageId: string): Promise<{ ok: boolean; cla
           state: "DRAFT",
           toAddrs: [msg.contact.email],
           subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
-          bodyText: draft,
-          snippet: draft.slice(0, 140),
+          bodyText: body,
+          snippet: body.slice(0, 140),
           idempotencyKey: key,
           inReplyTo: msg.messageIdHeader,
           referencesHeader: [msg.referencesHeader, msg.messageIdHeader].filter(Boolean).join(" "),
         },
       });
     }
+  }
+
+  // 6) Alert the owner the moment a hot reply (or a human request) lands, so they
+  //    can jump on it. Best-effort; never blocks or fails the classification.
+  if (HOT.includes(classification) || humanRequested) {
+    const who = msg.lead?.businessName || msg.contact?.email || "A prospect";
+    const label = humanRequested ? "wants to speak to a human" : `replied — ${classification.replace(/_/g, " ").toLowerCase()}`;
+    const preview = (msg.bodyText || "").trim().slice(0, 500);
+    await notifyOwner(
+      `🔥 ${who} ${label}`,
+      [
+        `${who} ${label}.`,
+        msg.contact?.email ? `From: ${msg.contact.email}` : "",
+        msg.subject ? `Subject: ${msg.subject}` : "",
+        "",
+        "Their message:",
+        preview,
+        "",
+        "Open Arlo → Inbox to reply (a suggested reply may already be drafted).",
+      ].filter(Boolean).join("\n"),
+    );
   }
 
   await audit("worker", "classify", "Message", messageId, `Reply classified: ${classification}${needsAttention ? " (needs attention)" : ""}`);

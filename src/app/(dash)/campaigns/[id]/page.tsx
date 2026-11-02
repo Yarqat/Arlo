@@ -73,6 +73,7 @@ export default async function CampaignDetail({ params }: { params: Promise<{ id:
         allowUnverified={campaign.allowUnverified}
         autoDiscover={campaign.autoDiscover}
         offer={campaign.offer}
+        subjectVariants={campaign.subjectVariants}
         timezone={campaign.timezone}
         businessHours={campaign.businessHours as { days?: number[]; start?: string; end?: string } | null}
       />

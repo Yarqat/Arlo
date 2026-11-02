@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { ownerRoute } from "@/lib/api";
+import { encryptJson } from "@/lib/crypto";
 
 const num = z.coerce.number().min(0);
 const schema = z.object({
@@ -27,10 +28,21 @@ const schema = z.object({
   assistantSpeakByDefault: z.boolean().optional(),
   dailyBriefingEnabled: z.boolean().optional(),
   dailyBriefingHour: num.int().min(0).max(23).optional(),
+  // Outreach intelligence + scheduling
+  hotReplyNotify: z.boolean().optional(),
+  notifyEmail: z.string().max(200).optional(),
+  enrichEmails: z.boolean().optional(),
+  trackClicks: z.boolean().optional(),
+  bookingUrl: z.string().max(500).optional(),
+  // Plaintext in; stored encrypted. "" clears it.
+  calcomApiKey: z.string().max(300).optional(),
 });
 
 export const POST = ownerRoute(async (req) => {
-  const data = schema.parse(await req.json());
-  await prisma.globalSettings.upsert({ where: { id: "singleton" }, create: { id: "singleton", ...data }, update: data });
+  const { calcomApiKey, ...data } = schema.parse(await req.json());
+  const extra: Record<string, unknown> = {};
+  if (calcomApiKey !== undefined) extra.calcomApiKeyEnc = calcomApiKey ? encryptJson(calcomApiKey) : "";
+  const merged = { ...data, ...extra };
+  await prisma.globalSettings.upsert({ where: { id: "singleton" }, create: { id: "singleton", ...merged }, update: merged });
   return NextResponse.json({ ok: true });
 });

@@ -125,6 +125,11 @@ model Lead {
   matchExplanation String   @default("")
   exclusionReason String   @default("")
 
+  // Buying-signal detection: hash of the prospect site's content at last research,
+  // so a later change (redesign, new page) can be flagged as a reason to reach out.
+  contentHash      String   @default("")
+  contentChangedAt DateTime?
+
   nextActionType  String?
   nextActionAt    DateTime?
 
@@ -311,6 +316,10 @@ model Campaign {
   // What this campaign pitches — the offer + call to action that every draft is
   // built around (e.g. "a faster website with an online enquiry/quote form").
   offer         String  @default("")
+  // A/B testing: optional subject-line variants. When set, drafts rotate through
+  // them round-robin and each message records which variant it used, so reply
+  // rate per variant can be compared in Reports.
+  subjectVariants String[] @default([])
   timezone      String  @default("Asia/Karachi")
   businessHours Json?   // { days:[1..5], start:"09:00", end:"17:00" }
 
@@ -484,6 +493,15 @@ model Message {
   classification ReplyClass @default(NONE)
   isAutoReply    Boolean  @default(false)
   followUpStep   Int      @default(0)
+  variantKey     String   @default("") // A/B subject variant used (blank = none)
+
+  // Click tracking (opt-in). trackToken keys the click-redirect links in the body.
+  // No open tracking — we deliberately do not embed tracking pixels. The token is a
+  // random cuid (collision-safe); indexed, not @unique, to keep schema changes additive.
+  trackToken     String?
+  clickCount     Int      @default(0)
+  firstClickAt   DateTime?
+  events         MessageEvent[]
 
   sentAt         DateTime?
   receivedAt     DateTime?
@@ -497,6 +515,7 @@ model Message {
   @@index([direction, state])
   @@index([leadId])
   @@index([imapFolder, imapUid])
+  @@index([trackToken])
 }
 
 model Attachment {
@@ -508,6 +527,18 @@ model Attachment {
   size        Int     @default(0)
   contentId   String?
   storagePath String  @default("")
+}
+
+// One row per recorded link click on an outbound message (no open tracking).
+model MessageEvent {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  url       String   @default("") // the destination the recipient clicked through to
+  userAgent String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([messageId])
 }
 
 // ---------------------------------------------------------------------------
@@ -829,6 +860,17 @@ model GlobalSettings {
   ttsModel             String  @default("") // selected TTS model
   dailyBriefingEnabled Boolean @default(false)
   dailyBriefingHour    Int     @default(8) // local hour (timezone) for the daily briefing
+
+  // Outreach intelligence
+  hotReplyNotify   Boolean @default(true)  // email the owner when a hot reply arrives
+  notifyEmail      String  @default("")    // where owner alerts go (blank = owner login email)
+  enrichEmails     Boolean @default(true)  // scrape contact emails from prospect sites during research
+  trackClicks      Boolean @default(false) // wrap links so clicks are logged (no open pixels)
+
+  // Scheduling — the OWNER connects their OWN Cal.com / Google Calendar. We never
+  // use any Anthropic/Claude credentials here; the owner pastes their own link/key.
+  bookingUrl       String  @default("")    // public Cal.com / Google Calendar scheduling link, inserted into replies
+  calcomApiKeyEnc  String  @default("")    // optional: owner's own Cal.com API key, encrypted (reserved for live availability)
 
   updatedAt         DateTime @updatedAt
 }

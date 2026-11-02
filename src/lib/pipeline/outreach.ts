@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { prisma } from "@/lib/db";
 import { getProfile, getSettings } from "@/lib/settings";
 import { runAiTask, extractJson } from "@/lib/providers/ai";
@@ -9,6 +10,7 @@ import { scheduleFollowUps } from "./followup";
 import { audit } from "@/lib/audit";
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
+import { wrapLinks } from "@/lib/tracking";
 import type { Contact } from "@prisma/client";
 
 // Patterns that must never appear in generated outreach (prices, invented claims).
@@ -180,6 +182,24 @@ export async function draftOutreach(leadId: string, opts: { actor?: string } = {
     return { ok: false, reason: (e as Error).message };
   }
 
+  // A/B subject testing: if the campaign defines subject variants, rotate through
+  // them round-robin (by how many first-touch emails it has already produced) and
+  // record which variant this message used, so Reports can compare reply rates.
+  let variantKey = "";
+  const variants = campaign?.subjectVariants ?? [];
+  if (variants.length > 0) {
+    const sent = await prisma.message.count({ where: { campaignId: campaign?.id, direction: "OUTBOUND", followUpStep: 0, variantKey: { not: "" } } });
+    const idx = sent % variants.length;
+    const chosen = variants[idx]
+      .replace(/\{\{\s*business\s*\}\}/gi, lead.businessName)
+      .replace(/\{\{\s*company\s*\}\}/gi, lead.businessName)
+      .trim();
+    if (chosen) {
+      subject = chosen.slice(0, 200);
+      variantKey = `v${idx}`;
+    }
+  }
+
   const scrub = scrubOutreach(subject + "\n" + bodyCore);
   const settings = await getSettings();
   const signature = profile.defaultSignature ? `\n\n${profile.defaultSignature}` : `\n\n${profile.personName}\n${profile.companyName}`;
@@ -201,6 +221,7 @@ export async function draftOutreach(leadId: string, opts: { actor?: string } = {
       snippet: bodyCore.slice(0, 140),
       idempotencyKey,
       followUpStep: 0,
+      variantKey,
     },
   });
 
@@ -265,12 +286,23 @@ export async function sendMessage(messageId: string, opts: { isFollowUp?: boolea
 
   const domain = mailbox.email.split("@")[1] || "agent.yarqat.com";
   const messageIdHeader = buildMessageId(domain);
+
+  // Click tracking (opt-in): rewrite links so clicks are logged, then forwarded.
+  // Only when enabled and the body actually contains a link; unsubscribe stays direct.
+  const trackSettings = await getSettings();
+  let outgoingText = msg.bodyText;
+  let trackToken = msg.trackToken ?? null;
+  if (trackSettings.trackClicks && /https?:\/\//i.test(msg.bodyText)) {
+    trackToken = trackToken || crypto.randomUUID();
+    outgoingText = wrapLinks(msg.bodyText, trackToken);
+  }
+
   try {
     const result = await sendViaMailbox(mailbox, {
       from: `${mailbox.senderName} <${mailbox.email}>`,
       to: msg.contact.email,
       subject: msg.subject,
-      text: msg.bodyText,
+      text: outgoingText,
       messageId: messageIdHeader,
       inReplyTo: msg.inReplyTo ?? undefined,
       references: msg.referencesHeader ?? undefined,
@@ -307,6 +339,7 @@ export async function sendMessage(messageId: string, opts: { isFollowUp?: boolea
         fromAddr: mailbox.email,
         messageIdHeader,
         providerMessageId: result.providerMessageId,
+        trackToken,
       },
     });
     await prisma.thread.update({ where: { id: thread.id }, data: { lastMessageAt: new Date() } });

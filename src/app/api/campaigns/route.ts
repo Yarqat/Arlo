@@ -40,6 +40,7 @@ const schema = z.discriminatedUnion("action", [
     allowUnverified: z.boolean().optional(),
     autoDiscover: z.boolean().optional(),
     offer: z.string().max(2000).optional(),
+    subjectVariants: z.array(z.string().max(200)).max(10).optional(),
     timezone: z.string().max(64).optional(),
     businessHours: z.object({
       days: z.array(z.coerce.number().int().min(1).max(7)).optional(),
@@ -125,6 +126,7 @@ export const POST = ownerRoute(async (req) => {
     if (b.allowUnverified !== undefined) data.allowUnverified = b.allowUnverified;
     if (b.autoDiscover !== undefined) data.autoDiscover = b.autoDiscover;
     if (b.offer !== undefined) data.offer = b.offer;
+    if (b.subjectVariants !== undefined) data.subjectVariants = b.subjectVariants.map((s) => s.trim()).filter(Boolean);
     if (b.timezone !== undefined) data.timezone = b.timezone;
     if (b.businessHours !== undefined) data.businessHours = b.businessHours === null ? Prisma.DbNull : b.businessHours;
     await prisma.campaign.update({ where: { id: b.id }, data });

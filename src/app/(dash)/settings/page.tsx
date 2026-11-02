@@ -2,11 +2,12 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/misc";
 import { Card } from "@/components/ui/card";
 import {
-  User, Boxes, PlugZap, Search, MailCheck, Mails, Gauge, ShieldBan, Lock, DatabaseBackup, PenLine, ChevronRight, Bot,
+  User, Boxes, PlugZap, Search, MailCheck, Mails, Gauge, ShieldBan, Lock, DatabaseBackup, PenLine, ChevronRight, Bot, Zap,
 } from "lucide-react";
 
 const SECTIONS = [
   { href: "/settings/profile", icon: User, title: "Profile & Yarqat details", desc: "Your name, company, bio and signature." },
+  { href: "/settings/automation", icon: Zap, title: "Automation & scheduling", desc: "Hot-reply alerts, email enrichment, your booking link." },
   { href: "/settings/services", icon: Boxes, title: "Services & portfolio", desc: "Approved service descriptions and examples." },
   { href: "/settings/writing", icon: PenLine, title: "Writing preferences", desc: "Voice, style and prohibited claims." },
   { href: "/settings/connections", icon: PlugZap, title: "AI connections & models", desc: "OpenAI, Anthropic, Claude Code. Model allowlist." },

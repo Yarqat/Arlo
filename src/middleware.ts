@@ -8,6 +8,7 @@ const PUBLIC = [
   "/api/health",
   "/u/", // one-click unsubscribe landing + confirm
   "/api/public/", // unauthenticated endpoints (unsubscribe one-click)
+  "/t/", // click-tracking redirect (recipients are not logged in)
 ];
 
 export async function middleware(req: NextRequest) {

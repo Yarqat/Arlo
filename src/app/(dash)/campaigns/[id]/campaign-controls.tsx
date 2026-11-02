@@ -31,7 +31,7 @@ function hourLabel(h: number) {
 }
 
 export function CampaignControls({
-  id, status, mode, sendingMailboxId, followUpSequenceId, mailboxes, sequences, allowUnverified, autoDiscover, offer, timezone, businessHours,
+  id, status, mode, sendingMailboxId, followUpSequenceId, mailboxes, sequences, allowUnverified, autoDiscover, offer, subjectVariants, timezone, businessHours,
 }: {
   id: string;
   status: string;
@@ -43,6 +43,7 @@ export function CampaignControls({
   allowUnverified: boolean;
   autoDiscover: boolean;
   offer: string;
+  subjectVariants: string[];
   timezone: string;
   businessHours: { days?: number[]; start?: string; end?: string } | null;
 }) {
@@ -51,6 +52,8 @@ export function CampaignControls({
   const [confirmAuto, setConfirmAuto] = React.useState(false);
   const [offerText, setOfferText] = React.useState(offer);
   const [offerSaved, setOfferSaved] = React.useState(false);
+  const [variantsText, setVariantsText] = React.useState((subjectVariants ?? []).join("\n"));
+  const [variantsSaved, setVariantsSaved] = React.useState(false);
   // Sending window
   const [winOn, setWinOn] = React.useState(!!businessHours);
   const [tz, setTz] = React.useState(timezone || "America/New_York");
@@ -136,6 +139,21 @@ export function CampaignControls({
           <div className="mt-2 flex items-center gap-3">
             <Button size="sm" variant="secondary" disabled={busy} onClick={async () => { await control({ offer: offerText }); setOfferSaved(true); }}>Save offer</Button>
             {offerSaved && <span className="text-xs text-success">Saved — new drafts will use this.</span>}
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <Field label="A/B subject lines (optional)" hint="One per line. New drafts rotate through them so you can compare reply rates in Reports. Use {{business}} to insert the business name. Leave blank to let Arlo write a unique subject each time.">
+            <Textarea
+              value={variantsText}
+              onChange={(e) => { setVariantsText(e.target.value); setVariantsSaved(false); }}
+              rows={3}
+              placeholder={"Quick question about {{business}}'s website\nHelping {{business}} get more enquiries online"}
+            />
+          </Field>
+          <div className="mt-2 flex items-center gap-3">
+            <Button size="sm" variant="secondary" disabled={busy} onClick={async () => { await control({ subjectVariants: variantsText.split("\n").map((s) => s.trim()).filter(Boolean) }); setVariantsSaved(true); }}>Save variants</Button>
+            {variantsSaved && <span className="text-xs text-success">Saved — new drafts will A/B test these.</span>}
           </div>
         </div>
 

@@ -4,7 +4,7 @@
 
 ### Your self-hosted AI sales assistant — it finds leads, writes honest outreach, and never oversteps.
 
-Arlo is a single-owner **AI sales CRM + cold-outreach assistant** you run on your own server. It discovers businesses, researches them from public data, verifies emails, drafts outreach in *your* voice, and — only when you approve — sends and follows up. You can run the whole thing **by voice or by text**.
+Arlo is a single-owner **AI sales CRM + cold-outreach assistant** you run on your own server. It discovers businesses, researches them from public data, **finds their contact emails**, verifies addresses, and drafts outreach in *your* voice — then, only when you approve, sends, follows up, and handles the replies. It tracks link clicks (never opens), alerts you the moment a hot reply lands, and offers *your* calendar link so prospects can book. You can run the whole thing **by voice or by text**.
 
 The core idea: **the AI proposes, deterministic code enforces.** Suppression, budgets, idempotency, verification and send-eligibility are real database rows and hard checks — not prompt promises. Arlo will not invent a price, a testimonial, a guarantee or a result, and it treats every scraped page and inbound email as untrusted data.
 
@@ -50,6 +50,8 @@ The core idea: **the AI proposes, deterministic code enforces.** Suppression, bu
 - Fetches a lead's public pages through an **SSRF-safe** fetcher (blocks private, loopback, link-local and cloud-metadata addresses).
 - Produces **facts and opportunities tied to evidence** — it will not claim a site is "slow", "insecure" or "losing revenue" without a measurement.
 - Risky or unverifiable claims are flagged for manual review rather than sent.
+- **Email enrichment (free, no API):** harvests contact emails from the prospect's own site (`mailto:` links and on-page addresses) during research, so leads that arrived without a contact become reachable. Junk/placeholder addresses are filtered; the first good address becomes the primary contact.
+- **Buying-signal detection:** hashes each site's content and flags when it changes between checks (a redesign, a new page) — a timely, specific reason to reach out again, surfaced in Reports.
 
 ### ✅ Email verification
 - Deliverability through **ZeroBounce**, **NeverBounce**, or **Email Awesome** (asynchronous, via a secured results webhook).
@@ -60,10 +62,17 @@ The core idea: **the AI proposes, deterministic code enforces.** Suppression, bu
 - A deterministic **scrubber** blocks forbidden content (prices, discounts, guarantees, invented results/testimonials/credentials) *before* anything can send.
 - **Idempotent sending** (a message can never be sent twice), per-RFC `List-Unsubscribe` headers, and one-click public unsubscribe.
 - Three modes per campaign: **Draft-only**, **Approve-first** (you click send), **Automatic** (sends within all guards).
+- **A/B subject lines:** give a campaign a set of subject variants (with a `{{business}}` token) and drafts rotate through them automatically, each tagged so Reports can compare reply rate per variant. Leave it empty and Arlo writes a fresh, unique subject every time.
 
 ### 📥 Inbox, replies & follow-ups
 - IMAP sync (UIDVALIDITY-aware, deduped, threaded). Reply classification drafts a suggested response.
 - **Any reply pauses follow-ups before the AI runs**; opt-outs auto-suppress; hard bounces suppress, temporary bounces don't.
+- **Filtered inbox views** — All, **Replies** (real human responses), **Sent**, Needs-attention, Interested, Out-of-office, Bounces, **Unsubscribes**, Unmatched and Archived, each with live counts.
+- **Opt-out safety net:** an "unsubscribe / opt-out / remove me" in *any* inbound reply suppresses the sender immediately — even when the reply can't be matched to a lead — so no one who asks to stop is emailed again.
+- **Hot-reply alerts:** the moment an interested, pricing, meeting or info-request reply lands, Arlo emails you (to an address you choose) with the message, so you can jump on it.
+
+### 📅 Scheduling — your calendar, your keys
+- Connect **your own** Cal.com or Google Calendar booking link (and, optionally, your own Cal.com API key, stored encrypted). When a prospect is interested, Arlo offers your link in the suggested reply so they can self-book. No third-party credentials are ever involved — the connection is entirely yours.
 
 ### 🤖 Arlo — personal assistant (voice + text)
 - **Push-to-talk**: microphone permission is requested only when you activate voice; your speech is transcribed, **shown for you to edit before it's sent**, and the audio is discarded (no recordings kept).
@@ -73,8 +82,11 @@ The core idea: **the AI proposes, deterministic code enforces.** Suppression, bu
 - **Editable personal & business memory** (durable preferences, distinct from conversation context) — and it will **never** store a password or API key as memory.
 - **Durable reminders** and an optional **daily briefing** on the background worker (Asia/Karachi by default; the interpreted time is shown when scheduling).
 
-### 📊 Reports & budgets
-- Every metric shows its **numerator and denominator**. No tracking pixels; "delivered" is only counted when a provider confirms it.
+### 📊 Reports, analytics & budgets
+- Every metric shows its **numerator and denominator**. "Delivered" is only counted when a provider confirms it.
+- **Click tracking, honestly done:** links in outgoing emails are wrapped so clicks are logged (who clicked, and where to) and shown in Reports. **No open tracking** — Arlo never embeds a tracking pixel, so you never see the inflated, bot-driven "open rates" that pixels produce. The unsubscribe link is never wrapped, and the redirect only forwards to `http(s)` targets.
+- **Deliverability health:** live hard-bounce rate with a warning when it approaches the threshold that gets senders suspended, plus a breakdown of your suppression list by reason.
+- **Reply rate by industry** and **A/B subject performance**, so you can see what's actually working and focus where replies come from.
 - **Budgets you control**: daily/monthly spend, daily AI requests, new leads, research, emails per day/hour, follow-up caps — enforced by an **atomic, concurrency-safe reservation engine** that can't overspend. Transcription, reasoning and speech costs are tracked separately and roll into your daily spend.
 - One **Emergency pause** stops all outbound instantly.
 
@@ -143,6 +155,7 @@ Speech providers are independent of your reasoning model — Arlo never assumes 
 | Speech-to-text | OpenAI (Whisper / gpt-4o-transcribe), Deepgram | Settings → Voice |
 | Text-to-speech | OpenAI, ElevenLabs | Settings → Voice |
 | Mail | Any SMTP + IMAP mailbox | Settings → Mailboxes |
+| Scheduling | Your own Cal.com / Google Calendar link | Settings → Automation & scheduling |
 
 The newest OpenAI and Anthropic models that reject a custom `temperature` are handled transparently. Email Awesome results arrive at a **secured webhook** (`/api/public/verifier/emailawesome`) whose bearer secret is verified *before* the body is trusted.
 
@@ -152,6 +165,7 @@ The newest OpenAI and Anthropic models that reject a custom `temperature` are ha
 
 - **AI proposes, code enforces.** Suppression, idempotency, verification freshness, send schedule, hourly/daily limits and budgets are deterministic checks in a pre-send gate — not left to the model.
 - **Honesty by construction.** A forbidden-content scrubber blocks invented prices, discounts, guarantees, portfolio, results, testimonials and credentials before any send.
+- **No dark patterns in tracking.** Click tracking is a transparent redirect (http/https targets only) you can switch off; Arlo never embeds open-tracking pixels, never fabricates metrics, and never wraps your unsubscribe link.
 - **Untrusted input.** Scraped web pages and inbound emails are treated as data, never instructions (prompt-injection hardened). Email verification never bypasses CAPTCHAs or scrapes private accounts; Arlo never guesses email addresses.
 - **Encrypted secrets.** Integration credentials are AES-256-GCM encrypted at rest (key in `.env`, outside the database). Logs redact secrets. The app binds to localhost behind your reverse proxy.
 - **Your controls.** One-click emergency pause; per-campaign budgets; a model allowlist the AI cannot escape; one-click + `List-Unsubscribe` opt-out.

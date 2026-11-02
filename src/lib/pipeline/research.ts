@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { prisma } from "@/lib/db";
 import { getProfile, getSettings } from "@/lib/settings";
 import { runAiTask, extractJson } from "@/lib/providers/ai";
@@ -6,6 +7,29 @@ import { safeFetch } from "@/lib/net/safe-fetch";
 import { changeStage } from "./stage";
 import { audit } from "@/lib/audit";
 import { log } from "@/lib/log";
+import { normalizeEmail } from "@/lib/dedup";
+
+// Emails we never treat as a real contact (tracking, placeholders, assets).
+const EMAIL_JUNK = /(no[-_]?reply|noreply|donotreply|example\.|sentry|wixpress|\.png|\.jpg|\.gif|\.webp|@sentry|@example|@email\.|@domain\.|your@|name@|user@)/i;
+const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+
+/** Pull candidate contact emails out of raw page HTML (mailto: links + plain text). */
+function extractEmails(html: string): string[] {
+  const found = new Set<string>();
+  // mailto: links are the strongest signal.
+  const mailto = /mailto:([^"'?>\s]+)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = mailto.exec(html))) found.add(m[1]);
+  for (const raw of html.match(EMAIL_RE) ?? []) found.add(raw);
+  return [...found]
+    .map((e) => normalizeEmail(e))
+    .filter((e) => e.includes("@") && !EMAIL_JUNK.test(e) && e.length <= 120);
+}
+
+function emailType(email: string): "ROLE" | "UNKNOWN" {
+  const local = email.split("@")[0] || "";
+  return /^(info|sales|contact|hello|hi|admin|support|enquiries|inquiries|office|team|mail|booking|bookings)$/i.test(local) ? "ROLE" : "UNKNOWN";
+}
 
 function htmlToText(html: string): string {
   return html
@@ -54,14 +78,16 @@ export async function researchLead(leadId: string): Promise<{ ok: boolean; reaso
     await changeStage(leadId, "RESEARCHING", "worker", "Research started");
     const start = lead.website.startsWith("http") ? lead.website : `https://${lead.website}`;
     const pages: { url: string; text: string }[] = [];
+    let rawHtml = ""; // kept for email enrichment + change detection
     try {
       const home = await safeFetch(start, { maxBytes: 1_500_000, timeoutMs: 15000 });
       pages.push({ url: home.url, text: htmlToText(home.body) });
+      rawHtml += home.body;
       const links = pickLinks(home.body, home.url, maxPages - 1);
       for (const link of links) {
         try {
           const p = await safeFetch(link, { maxBytes: 1_000_000, timeoutMs: 12000 });
-          if (p.status < 400) pages.push({ url: p.url, text: htmlToText(p.body) });
+          if (p.status < 400) { pages.push({ url: p.url, text: htmlToText(p.body) }); rawHtml += p.body; }
         } catch (e) {
           log.warn("research page fetch failed", { link, err: (e as Error).message });
         }
@@ -81,6 +107,40 @@ export async function researchLead(leadId: string): Promise<{ ok: boolean; reaso
       await r.commit(0, { count: 1 });
       return { ok: false, reason: "No pages fetched" };
     }
+
+    // --- Email enrichment: harvest contact emails from the site itself (free,
+    //     no external API) so leads that came in without an address become
+    //     emailable. Only runs when enabled and respects the per-lead unique email.
+    if (settings.enrichEmails) {
+      try {
+        const emails = extractEmails(rawHtml).slice(0, 5);
+        for (const email of emails) {
+          await prisma.contact.upsert({
+            where: { leadId_email: { leadId, email } },
+            create: { leadId, email, emailType: emailType(email), source: "site", sourceUrl: pages[0]?.url ?? "", isPrimary: false },
+            update: {},
+          });
+        }
+        if (emails.length) {
+          const primary = await prisma.contact.findFirst({ where: { leadId, isPrimary: true } });
+          if (!primary) await prisma.contact.updateMany({ where: { leadId, email: emails[0] }, data: { isPrimary: true } });
+          log.info("enriched emails", { leadId, found: emails.length });
+        }
+      } catch (e) {
+        log.warn("email enrichment failed", { leadId, err: (e as Error).message });
+      }
+    }
+
+    // --- Buying-signal detection: hash the site content; if it changed since the
+    //     last research, flag it on the lead (findings get wiped on each re-run,
+    //     so the signal lives on contentChangedAt instead) as a reason to reach out.
+    const contentHash = crypto.createHash("sha256").update(pages.map((p) => p.text).join("\n").slice(0, 60000)).digest("hex");
+    const contentChanged = !!lead.contentHash && lead.contentHash !== contentHash;
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: { contentHash, ...(contentChanged ? { contentChangedAt: new Date() } : {}) },
+    });
+    if (contentChanged) await audit("worker", "signal", "Lead", leadId, `Website changed since last check: ${lead.businessName}`);
 
     const [profile, services] = await Promise.all([getProfile(), prisma.service.findMany({ where: { enabled: true } })]);
     const brief = lead.primaryCampaign;
