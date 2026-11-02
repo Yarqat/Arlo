@@ -67,12 +67,17 @@ export async function researchLead(leadId: string): Promise<{ ok: boolean; reaso
         }
       }
     } catch (e) {
-      await prisma.lead.update({ where: { id: leadId }, data: { qualification: "NEEDS_REVIEW", matchExplanation: `Could not fetch website: ${(e as Error).message}` } });
+      // Website unreachable — don't leave the lead stuck in RESEARCHING. Move it
+      // to review with a visible reason so the owner can see why it stalled.
+      await prisma.lead.update({ where: { id: leadId }, data: { researchedAt: new Date(), qualification: "NEEDS_REVIEW", matchExplanation: `Could not fetch website: ${(e as Error).message}` } });
+      await changeStage(leadId, "READY_FOR_REVIEW", "worker", "Research skipped: website unreachable");
       await r.commit(0, { count: 1 });
       return { ok: false, reason: `Fetch failed: ${(e as Error).message}` };
     }
 
     if (pages.length === 0) {
+      await prisma.lead.update({ where: { id: leadId }, data: { researchedAt: new Date(), qualification: "NEEDS_REVIEW", matchExplanation: "Website returned no readable content." } });
+      await changeStage(leadId, "READY_FOR_REVIEW", "worker", "Research skipped: no readable pages");
       await r.commit(0, { count: 1 });
       return { ok: false, reason: "No pages fetched" };
     }
@@ -98,6 +103,8 @@ export async function researchLead(leadId: string): Promise<{ ok: boolean; reaso
       opportunities: { observation: string; pageUrl: string; evidence: string; service?: string; measurement?: string }[];
     }>(res.text);
     if (!parsed) {
+      await prisma.lead.update({ where: { id: leadId }, data: { researchedAt: new Date(), qualification: "NEEDS_REVIEW", matchExplanation: "Automatic analysis was inconclusive; needs manual review." } });
+      await changeStage(leadId, "READY_FOR_REVIEW", "worker", "Research inconclusive — needs manual review");
       await r.commit(0, { count: 1 });
       return { ok: false, reason: "AI returned no analysis" };
     }

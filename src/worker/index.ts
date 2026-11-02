@@ -143,6 +143,25 @@ async function tick() {
       });
       for (const l of toResearch) await enqueue("research", "research-lead", { leadId: l.id });
 
+      // Retry leads stuck in RESEARCHING. A lead is set to RESEARCHING before the
+      // research AI call; if that call throws (e.g. a daily budget cap was hit)
+      // the lead never advances. Pick it back up once it has been idle > 10 min
+      // so a transient failure self-heals instead of orphaning the lead silently.
+      // Kept separate from the NEW query above so a backlog of NEW leads can't
+      // starve these retries out of every tick's slots.
+      const staleBefore = new Date(Date.now() - 10 * 60 * 1000);
+      const toRetry = await prisma.lead.findMany({
+        where: {
+          primaryCampaignId: c.id,
+          website: { not: "" },
+          stage: "RESEARCHING",
+          researchedAt: null,
+          updatedAt: { lt: staleBefore },
+        },
+        take: 10,
+      });
+      for (const l of toRetry) await enqueue("research", "research-lead", { leadId: l.id });
+
       // verify QUALIFIED leads lacking a fresh verification
       const toVerify = await prisma.lead.findMany({
         where: { primaryCampaignId: c.id, stage: "QUALIFIED", contacts: { some: { verifications: { none: {} } } } },
