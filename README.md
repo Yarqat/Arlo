@@ -1,0 +1,190 @@
+<div align="center">
+
+# Arlo
+
+### Your self-hosted AI sales assistant — it finds leads, writes honest outreach, and never oversteps.
+
+Arlo is a single-owner **AI sales CRM + cold-outreach assistant** you run on your own server. It discovers businesses, researches them from public data, verifies emails, drafts outreach in *your* voice, and — only when you approve — sends and follows up. You can run the whole thing **by voice or by text**.
+
+The core idea: **the AI proposes, deterministic code enforces.** Suppression, budgets, idempotency, verification and send-eligibility are real database rows and hard checks — not prompt promises. Arlo will not invent a price, a testimonial, a guarantee or a result, and it treats every scraped page and inbound email as untrusted data.
+
+[Features](#features) · [Screenshots](#screenshots) · [Quick start](#quick-start) · [Voice](#arlo-voice) · [Providers](#providers) · [Safety](#safety--guardrails) · [Architecture](#architecture)
+
+`Next.js 16` · `React 19` · `TypeScript` · `Tailwind 4` · `Prisma + PostgreSQL` · `BullMQ + Redis` · `MIT`
+
+</div>
+
+> **Note on screenshots:** the images below show the real Arlo UI populated with **illustrative sample data** so you can see how it looks in use. A fresh install starts empty.
+
+---
+
+## Screenshots
+
+### Overview — your pipeline at a glance
+![Arlo overview dashboard](docs/screenshots/overview.svg)
+
+### Arlo — talk or type, same rules either way
+![Arlo voice assistant](docs/screenshots/assistant.svg)
+
+### Leads — one business = one lead, deduped by domain
+![Leads table](docs/screenshots/leads.svg)
+
+### Campaigns — discover → research → verify → draft → approve → send
+![Campaign detail](docs/screenshots/campaign.svg)
+
+### Reports — honest metrics, explicitly defined
+![Reports](docs/screenshots/reports.svg)
+
+---
+
+## Features
+
+### 🧭 Lead discovery & CRM
+- **Find businesses** with a search provider (Serper.dev or Google Places) from a plain-English brief.
+- **One business = one lead**, de-duplicated by canonical domain (+ city for legitimate branches).
+- **CSV import** with automatic column mapping and the same dedup, plus **manual add** of a lead or an individual email/contact.
+- Rich lead detail: contacts, verification status, evidence-bound research findings, full stage history and provenance.
+- **Bulk actions** — verify, research or draft across every lead matching your current filter in one click.
+
+### 🔎 Research (evidence-bound)
+- Fetches a lead's public pages through an **SSRF-safe** fetcher (blocks private, loopback, link-local and cloud-metadata addresses).
+- Produces **facts and opportunities tied to evidence** — it will not claim a site is "slow", "insecure" or "losing revenue" without a measurement.
+- Risky or unverifiable claims are flagged for manual review rather than sent.
+
+### ✅ Email verification
+- Deliverability through **ZeroBounce**, **NeverBounce**, or **Email Awesome** (asynchronous, via a secured results webhook).
+- Only **deliverable** contacts qualify for automatic sending by default; catch-all/unknown require an explicit opt-in and stay labelled.
+
+### ✍️ Outreach that stays honest
+- Drafts in your configured **writing voice**, grounded in your real services and the lead's research.
+- A deterministic **scrubber** blocks forbidden content (prices, discounts, guarantees, invented results/testimonials/credentials) *before* anything can send.
+- **Idempotent sending** (a message can never be sent twice), per-RFC `List-Unsubscribe` headers, and one-click public unsubscribe.
+- Three modes per campaign: **Draft-only**, **Approve-first** (you click send), **Automatic** (sends within all guards).
+
+### 📥 Inbox, replies & follow-ups
+- IMAP sync (UIDVALIDITY-aware, deduped, threaded). Reply classification drafts a suggested response.
+- **Any reply pauses follow-ups before the AI runs**; opt-outs auto-suppress; hard bounces suppress, temporary bounces don't.
+
+### 🤖 Arlo — personal assistant (voice + text)
+- **Push-to-talk**: microphone permission is requested only when you activate voice; your speech is transcribed, **shown for you to edit before it's sent**, and the audio is discarded (no recordings kept).
+- Clear **Listening / Transcribing / Thinking / Speaking** states, with stop-playback, cancel-recording and a text-only fallback.
+- **Configurable speech providers**, kept separate from your reasoning model — speech-to-text via OpenAI Whisper or Deepgram; text-to-speech via OpenAI or ElevenLabs.
+- Arlo can summarise your inbox, explain reports, research a lead, operate campaigns, schedule reminders and manage memory — **with the same permissions, budgets, suppression and confirmation rules as typed requests**. Mutating actions require confirmation; ambiguous names and dates are resolved first.
+- **Editable personal & business memory** (durable preferences, distinct from conversation context) — and it will **never** store a password or API key as memory.
+- **Durable reminders** and an optional **daily briefing** on the background worker (Asia/Karachi by default; the interpreted time is shown when scheduling).
+
+### 📊 Reports & budgets
+- Every metric shows its **numerator and denominator**. No tracking pixels; "delivered" is only counted when a provider confirms it.
+- **Budgets you control**: daily/monthly spend, daily AI requests, new leads, research, emails per day/hour, follow-up caps — enforced by an **atomic, concurrency-safe reservation engine** that can't overspend. Transcription, reasoning and speech costs are tracked separately and roll into your daily spend.
+- One **Emergency pause** stops all outbound instantly.
+
+---
+
+## Quick start
+
+> Arlo is a single-owner, self-hosted app. You need **Node 20+**, **PostgreSQL** and **Redis**.
+
+```bash
+git clone https://github.com/Yarqat/Arlo.git
+cd Arlo
+corepack enable && pnpm install        # or: npm install
+
+cp .env.example .env                   # then edit .env (see below)
+pnpm prisma db push                    # create the schema
+pnpm seed:owner                        # creates your login (prints a one-time password)
+
+pnpm build
+pnpm start                             # web app (reads PORT/HOSTNAME)
+pnpm worker                            # in a second process: the background worker
+```
+
+Open the app, sign in with the seeded email + one-time password, and change it in **Settings → Security**.
+
+### Minimum `.env`
+
+```ini
+DATABASE_URL="postgresql://user:pass@127.0.0.1:5432/arlo?schema=public"
+APP_ENCRYPTION_KEY="<64 hex chars>"    # openssl rand -hex 32
+SESSION_SECRET="<32+ random chars>"    # openssl rand -hex 32
+REDIS_URL="redis://127.0.0.1:6379/4"
+APP_URL="https://arlo.example.com"
+```
+
+All provider keys (AI, search, verifier, speech) are **optional in `.env`** — you can add them in the Settings UI instead, where they're stored **AES-256-GCM encrypted**. Keys set in `.env` take precedence. See [`.env.example`](.env.example) for the full list.
+
+### First campaign
+1. **Settings → Connections** — add an AI key (OpenAI or Anthropic), test, approve a model, assign it to each task. You can mix providers per task.
+2. **Settings → Search / Email verifier** — add keys and test.
+3. **Settings → Mailboxes** — add your sending identity (SMTP + IMAP) and test.
+4. **Campaigns → New** — describe your ideal leads in plain English → review the brief → create (starts in Draft-only).
+5. Run discovery, review the drafts, and **Approve & send** — or switch the campaign to Automatic once you trust it.
+
+---
+
+## Arlo (voice)
+
+Voice is additive — Arlo always works by text. To enable talking:
+
+1. **Settings → Voice & assistant** → add a **speech-to-text** key (OpenAI Whisper or Deepgram) and test.
+2. Add a **text-to-speech** key (OpenAI or ElevenLabs) if you want spoken replies, and toggle **Speak replies**.
+3. On the **Assistant** screen, **hold the mic** to talk. Your words appear in the box to edit, then you send them.
+
+Speech providers are independent of your reasoning model — Arlo never assumes your chat key can do audio.
+
+---
+
+## Providers
+
+| Capability | Providers | Where |
+|---|---|---|
+| Reasoning (per-task) | OpenAI, Anthropic | Settings → Connections |
+| Lead discovery | Serper.dev, Google Places | Settings → Search |
+| Email verification | ZeroBounce, NeverBounce, Email Awesome | Settings → Email verifier |
+| Speech-to-text | OpenAI (Whisper / gpt-4o-transcribe), Deepgram | Settings → Voice |
+| Text-to-speech | OpenAI, ElevenLabs | Settings → Voice |
+| Mail | Any SMTP + IMAP mailbox | Settings → Mailboxes |
+
+The newest OpenAI and Anthropic models that reject a custom `temperature` are handled transparently. Email Awesome results arrive at a **secured webhook** (`/api/public/verifier/emailawesome`) whose bearer secret is verified *before* the body is trusted.
+
+---
+
+## Safety & guardrails
+
+- **AI proposes, code enforces.** Suppression, idempotency, verification freshness, send schedule, hourly/daily limits and budgets are deterministic checks in a pre-send gate — not left to the model.
+- **Honesty by construction.** A forbidden-content scrubber blocks invented prices, discounts, guarantees, portfolio, results, testimonials and credentials before any send.
+- **Untrusted input.** Scraped web pages and inbound emails are treated as data, never instructions (prompt-injection hardened). Email verification never bypasses CAPTCHAs or scrapes private accounts; Arlo never guesses email addresses.
+- **Encrypted secrets.** Integration credentials are AES-256-GCM encrypted at rest (key in `.env`, outside the database). Logs redact secrets. The app binds to localhost behind your reverse proxy.
+- **Your controls.** One-click emergency pause; per-campaign budgets; a model allowlist the AI cannot escape; one-click + `List-Unsubscribe` opt-out.
+
+Use Arlo in line with the laws and anti-spam rules that apply to you (e.g. CAN-SPAM, GDPR/PECR, CASL). You are responsible for who you contact and what you claim.
+
+---
+
+## Architecture
+
+```
+Next.js 16 (App Router) ── owner-auth middleware ── React 19 + Tailwind 4 UI
+          │
+          ├─ API routes (zod-validated, owner-gated, consistent error mapping)
+          │
+          ├─ Prisma ── PostgreSQL   (leads, contacts, messages, budgets, audit, …)
+          │
+          └─ BullMQ ── Redis ── worker process
+                                   ├─ discovery → research → verify → draft → send
+                                   ├─ IMAP sync, reply handling, follow-ups
+                                   └─ 60s automation tick + reminders + daily briefing
+```
+
+- **Deterministic core** in `src/lib`: `budget` (atomic reservations), `suppression`, `dedup`, `pipeline/*` (stage, preflight, outreach, research, verify, imap, reply), `providers/*` (ai, search, verifier, email, speech), `net/safe-fetch` (SSRF guard), `crypto` (AES-256-GCM + scrypt).
+- **Tests:** `pnpm test` runs a focused suite (dedup, CSV, bounce classifier, SSRF, scrubber, suppression-across-campaigns, concurrent-budget-never-overspends, model allowlist) against an isolated test database.
+
+```bash
+pnpm test        # vitest
+pnpm prisma studio   # inspect the database
+```
+
+---
+
+## License
+
+[MIT](LICENSE) © Yarqat. Arlo is free for everyone.

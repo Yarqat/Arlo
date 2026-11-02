@@ -11,6 +11,8 @@ import { processFollowUp } from "@/lib/pipeline/followup";
 import { discoverForCampaign } from "@/lib/pipeline/discover";
 import { handleReply } from "@/lib/pipeline/reply";
 import { syncMailbox } from "@/lib/pipeline/imap";
+import { dayKey, hourInTz, fmtFull } from "@/lib/time";
+import { runAiTask } from "@/lib/providers/ai";
 
 const prefix = env().BULLMQ_PREFIX;
 const base = { connection, prefix, concurrency: 2 };
@@ -42,6 +44,57 @@ const workers = [
   worker(QUEUE_NAMES.imap, async (d) => syncMailbox(d.mailboxId)),
 ];
 
+// --- Personal assistant: fire due reminders + daily briefing ---
+async function assistantTick(settings: { timezone?: string; dailyBriefingEnabled?: boolean; dailyBriefingHour?: number } | null) {
+  const tz = settings?.timezone || "Asia/Karachi";
+  try {
+    // Due reminders → owner-facing notifications.
+    const due = await prisma.reminder.findMany({ where: { status: "SCHEDULED", dueAt: { lte: new Date() } }, take: 20 });
+    for (const r of due) {
+      await prisma.assistantNotification.create({ data: { kind: "reminder", title: r.title, body: r.details } });
+      await prisma.reminder.update({ where: { id: r.id }, data: { status: "FIRED", firedAt: new Date() } });
+      log.info("reminder fired", { id: r.id });
+    }
+
+    // Daily briefing: once per local day, at/after the configured hour.
+    if (settings?.dailyBriefingEnabled) {
+      const today = dayKey(tz);
+      if (hourInTz(tz) >= (settings.dailyBriefingHour ?? 8)) {
+        const exists = await prisma.assistantNotification.findFirst({ where: { kind: "briefing", dayKey: today } });
+        if (!exists) {
+          const body = await buildBriefing(tz);
+          await prisma.assistantNotification.create({ data: { kind: "briefing", title: `Daily briefing — ${today}`, body, dayKey: today } });
+          log.info("daily briefing created", { day: today });
+        }
+      }
+    }
+  } catch (e) {
+    log.error("assistant tick error", { err: (e as Error).message });
+  }
+}
+
+async function buildBriefing(tz: string): Promise<string> {
+  const [interested, replied, dueToday, sentCount] = await Promise.all([
+    prisma.lead.count({ where: { stage: "INTERESTED" } }),
+    prisma.lead.count({ where: { stage: "REPLIED" } }),
+    prisma.reminder.findMany({ where: { status: { in: ["SCHEDULED", "FIRED"] } }, orderBy: { dueAt: "asc" }, take: 10 }),
+    prisma.message.count({ where: { direction: "OUTBOUND", state: "SENT" } }),
+  ]);
+  const reminders = dueToday.map((r) => `- ${r.title} (${fmtFull(r.dueAt, tz)})`).join("\n") || "- none";
+  const facts = `Interested leads: ${interested}. Awaiting your reply: ${replied}. Emails sent to date: ${sentCount}.\nUpcoming reminders:\n${reminders}`;
+  try {
+    const res = await runAiTask({
+      task: "ASSISTANT",
+      system: "Write a 3-4 sentence good-morning briefing for a solo founder from these CRM facts. Warm, concise, concrete. Use only the facts given; invent nothing.",
+      messages: [{ role: "user", content: facts }],
+      maxTokens: 300,
+    });
+    return `${res.text}\n\n${facts}`;
+  } catch {
+    return facts; // AI unavailable → still deliver the plain facts
+  }
+}
+
 // --- Automation tick: deterministic orchestration (every 60s) ---
 let ticking = false;
 async function tick() {
@@ -49,6 +102,10 @@ async function tick() {
   ticking = true;
   try {
     const settings = await prisma.globalSettings.findUnique({ where: { id: "singleton" } });
+
+    // Reminders + daily briefing run regardless of emergency pause (not outbound).
+    await assistantTick(settings);
+
     if (settings?.emergencyPause) return;
 
     // 1) Due follow-ups
@@ -65,11 +122,16 @@ async function tick() {
       for (const mb of mailboxes) await enqueue("imap", "sync", { mailboxId: mb.id });
     }
 
-    // 3) Automatic campaign pipeline
-    const campaigns = await prisma.campaign.findMany({ where: { status: "ACTIVE", outreachMode: "AUTOMATIC" } });
+    // 3) Campaign pipeline for every ACTIVE campaign.
+    //    Discovery/research/verify/draft are safe (no outbound) and run for ALL
+    //    active campaigns so leads keep flowing without manual clicking. Only
+    //    AUTOMATIC campaigns auto-send; APPROVE_FIRST/DRAFT_ONLY just prepare
+    //    drafts for your review. All volume is capped by the daily lead/spend
+    //    budgets (Settings → Budgets).
+    const campaigns = await prisma.campaign.findMany({ where: { status: "ACTIVE" } });
     for (const c of campaigns) {
-      // discover at most twice per hour (daily lead budget also caps volume)
-      if (minute === 3 || minute === 33) {
+      // keep discovering roughly every 10 minutes while budget/room remains
+      if (minute % 10 === 3) {
         await enqueue("discovery", "discover", { campaignId: c.id, limit: c.maxNewLeadsPerDay ?? 20 });
       }
 
@@ -99,15 +161,19 @@ async function tick() {
       });
       for (const l of toDraft) await enqueue("outreach", "draft-lead", { leadId: l.id });
 
-      // send clean step-0 drafts (AUTOMATIC only). Preflight enforces all guards.
-      // QUEUED = previously blocked (e.g. outside hours); retry when eligible again.
-      const drafts = await prisma.message.findMany({
-        where: { campaignId: c.id, direction: "OUTBOUND", state: { in: ["DRAFT", "QUEUED"] }, followUpStep: 0 },
-        take: 15,
-      });
-      for (const m of drafts) {
-        if (scrubOutreach(m.subject + "\n" + m.bodyText).clean) {
-          await enqueue("outreach", "send", { action: "send", messageId: m.id });
+      // Auto-send ONLY for AUTOMATIC campaigns. Preflight enforces every guard
+      // (suppression, verification, schedule, budgets). APPROVE_FIRST campaigns
+      // leave drafts for the owner to approve on the campaign screen.
+      if (c.outreachMode === "AUTOMATIC") {
+        // QUEUED = previously blocked (e.g. outside hours); retry when eligible.
+        const drafts = await prisma.message.findMany({
+          where: { campaignId: c.id, direction: "OUTBOUND", state: { in: ["DRAFT", "QUEUED"] }, followUpStep: 0 },
+          take: 15,
+        });
+        for (const m of drafts) {
+          if (scrubOutreach(m.subject + "\n" + m.bodyText).clean) {
+            await enqueue("outreach", "send", { action: "send", messageId: m.id });
+          }
         }
       }
     }

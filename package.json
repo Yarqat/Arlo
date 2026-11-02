@@ -1,7 +1,8 @@
 {
-  "name": "yarqat-agent",
+  "name": "arlo",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "next dev -p 3430",

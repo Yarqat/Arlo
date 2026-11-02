@@ -35,6 +35,7 @@ const VERIFY: Record<string, { label: string; tone: Tone }> = {
   DISPOSABLE: { label: "Disposable", tone: "danger" },
   ROLE: { label: "Role", tone: "info" },
   UNVERIFIED: { label: "Unverified", tone: "neutral" },
+  PENDING: { label: "Pending", tone: "info" },
 };
 export function verifyLabel(s: string) {
   return VERIFY[s]?.label ?? s;

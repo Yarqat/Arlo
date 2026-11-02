@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Yarqat Agent",
-  description: "Personal AI sales CRM and outreach assistant for Yarqat.",
+  title: "Arlo",
+  description: "Arlo — self-hosted AI sales CRM and cold-outreach assistant.",
   robots: { index: false, follow: false },
 };
 

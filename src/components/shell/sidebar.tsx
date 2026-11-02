@@ -46,9 +46,9 @@ export function Sidebar({ ownerName, paused }: { ownerName: string; paused: bool
       <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-3 md:hidden">
         <div className="flex items-center gap-2">
           <div className="flex size-7 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-fg">
-            Y
+            A
           </div>
-          <span className="text-sm font-semibold">Yarqat Agent</span>
+          <span className="text-sm font-semibold">Arlo</span>
         </div>
         <button onClick={() => setOpen((v) => !v)} aria-label="Menu">
           {open ? <X className="size-5" /> : <Menu className="size-5" />}
@@ -64,10 +64,10 @@ export function Sidebar({ ownerName, paused }: { ownerName: string; paused: bool
       >
         <div className="hidden items-center gap-2 px-5 py-5 md:flex">
           <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-fg">
-            Y
+            A
           </div>
           <div>
-            <p className="text-sm font-semibold leading-tight">Yarqat Agent</p>
+            <p className="text-sm font-semibold leading-tight">Arlo</p>
             <p className="text-xs text-muted">Sales assistant</p>
           </div>
         </div>

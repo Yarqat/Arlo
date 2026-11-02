@@ -1,25 +1,33 @@
 import { prisma } from "@/lib/db";
+import { getSettings } from "@/lib/settings";
 import { PageHeader } from "@/components/ui/misc";
 import { AssistantChat } from "./assistant-chat";
 
 export const dynamic = "force-dynamic";
 
 export default async function AssistantPage() {
-  const assistantReady =
-    (await prisma.modelAssignment.count({ where: { task: "ASSISTANT" } })) > 0;
-  const campaigns = await prisma.campaign.findMany({
-    where: { status: { not: "ARCHIVED" } },
-    select: { id: true, name: true },
-    orderBy: { createdAt: "desc" },
-  });
+  const [assignCount, campaigns, stt, tts, settings] = await Promise.all([
+    prisma.modelAssignment.count({ where: { task: "ASSISTANT" } }),
+    prisma.campaign.findMany({ where: { status: { not: "ARCHIVED" } }, select: { id: true, name: true }, orderBy: { createdAt: "desc" } }),
+    prisma.providerConnection.findFirst({ where: { kind: "SPEECH_STT", status: "CONNECTED" }, select: { id: true } }),
+    prisma.providerConnection.findFirst({ where: { kind: "SPEECH_TTS", status: "CONNECTED" }, select: { id: true } }),
+    getSettings(),
+  ]);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Assistant"
-        description="Ask in plain English. The assistant works within the same budgets, permissions and controls as every workflow."
+        description={`${settings.assistantName} works within the same budgets, permissions, suppression and confirmation rules as every workflow — by voice or text.`}
       />
-      <AssistantChat ready={assistantReady} campaigns={campaigns} />
+      <AssistantChat
+        ready={assignCount > 0}
+        assistantName={settings.assistantName}
+        voiceEnabled={!!stt}
+        ttsEnabled={!!tts}
+        speakDefault={settings.assistantSpeakByDefault}
+        campaigns={campaigns}
+      />
     </div>
   );
 }

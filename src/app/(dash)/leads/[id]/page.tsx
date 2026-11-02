@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/misc";
 import { stageLabel, stageTone, verifyLabel, verifyTone, titleCase } from "@/lib/labels";
 import { fmtDateTime, relativeTime } from "@/lib/time";
 import { LeadActions } from "./lead-actions";
+import { ContactsEditor } from "./contacts-editor";
 import { Globe, MapPin, Phone, ArrowLeft, Mail } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -120,29 +121,13 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
           <Card>
             <CardHeader><CardTitle>Contacts</CardTitle></CardHeader>
             <CardContent>
-              {lead.contacts.length === 0 ? (
-                <p className="text-sm text-muted">No contacts.</p>
-              ) : (
-                <ul className="space-y-3">
-                  {lead.contacts.map((c) => {
-                    const v = c.verifications[0];
-                    return (
-                      <li key={c.id} className="space-y-1 border-b border-border pb-3 last:border-0 last:pb-0">
-                        <div className="flex items-center gap-2">
-                          <Mail className="size-3 text-muted-2" />
-                          <span className="break-all text-sm font-medium">{c.email}</span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Badge tone="neutral">{c.emailType.toLowerCase()}</Badge>
-                          <Badge tone={verifyTone(v?.status ?? "UNVERIFIED")}>{verifyLabel(v?.status ?? "UNVERIFIED")}</Badge>
-                          {c.name && <span className="text-xs text-muted">{c.name}{c.role ? ` · ${c.role}` : ""}</span>}
-                        </div>
-                        {v && <p className="text-xs text-muted-2">Verified {relativeTime(v.checkedAt)} by {v.provider}</p>}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+              <ContactsEditor
+                leadId={lead.id}
+                initial={lead.contacts.map((c) => ({
+                  id: c.id, email: c.email, emailType: c.emailType, name: c.name, role: c.role,
+                  verify: c.verifications[0]?.status ?? "UNVERIFIED",
+                }))}
+              />
             </CardContent>
           </Card>
 

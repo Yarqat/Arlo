@@ -8,6 +8,7 @@ import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
 import { stageTone, stageLabel } from "@/lib/labels";
 import { Users, Upload, Globe } from "lucide-react";
 import { relativeTime } from "@/lib/time";
+import { BulkBar } from "./bulk-bar";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export default async function LeadsPage({
       { city: { contains: sp.q, mode: "insensitive" } },
     ];
 
-  const [leads, total] = await Promise.all([
+  const [leads, total, matchCount] = await Promise.all([
     prisma.lead.findMany({
       where,
       orderBy: { updatedAt: "desc" },
@@ -34,6 +35,7 @@ export default async function LeadsPage({
       include: { contacts: { take: 1 }, _count: { select: { contacts: true } } },
     }),
     prisma.lead.count(),
+    prisma.lead.count({ where }),
   ]);
 
   return (
@@ -65,6 +67,8 @@ export default async function LeadsPage({
         </select>
         <Button type="submit" variant="secondary" size="sm">Filter</Button>
       </form>
+
+      {leads.length > 0 && <BulkBar matchCount={matchCount} stage={sp.stage} q={sp.q} />}
 
       {leads.length === 0 ? (
         <EmptyState

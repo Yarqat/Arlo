@@ -29,12 +29,19 @@ export default async function VerifierPage() {
             providers={[
               { value: "zerobounce", label: "ZeroBounce" },
               { value: "neverbounce", label: "NeverBounce" },
+              { value: "emailawesome", label: "Email Awesome" },
             ]}
             status={conn.status}
             source={credentialSource(conn)}
             currentProvider={(conn.meta as any)?.provider ?? "zerobounce"}
             lastError={conn.lastError}
           />
+          <p className="mt-4 text-xs text-muted">
+            <b>Email Awesome</b> verifies asynchronously: a contact is submitted and its result (VALID, INVALID,
+            CATCH_ALL or UNKNOWN) arrives shortly after at a secured webhook on this server — no dashboard setup is
+            needed, the callback is sent with each request. A contact stays <code>pending</code> until its verdict
+            lands. ZeroBounce and NeverBounce answer immediately.
+          </p>
         </CardContent>
       </Card>
     </div>

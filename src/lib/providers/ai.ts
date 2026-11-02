@@ -71,17 +71,31 @@ const openai: Adapter = {
       ...(opts.system ? [{ role: "system", content: opts.system }] : []),
       ...opts.messages,
     ];
-    const { res, json } = await fetchJson(`${base}/chat/completions`, {
+    const payload: Record<string, unknown> = {
+      model: opts.model,
+      messages,
+      max_completion_tokens: opts.maxTokens ?? 1024,
+    };
+    // Newer OpenAI reasoning models (gpt-5/o-series, etc.) reject a custom
+    // `temperature` ("deprecated for this model"). Send it when asked, but if the
+    // model refuses, transparently retry once without it rather than failing.
+    if (opts.temperature != null) payload.temperature = opts.temperature;
+
+    let { res, json } = await fetchJson(`${base}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
-      body: JSON.stringify({
-        model: opts.model,
-        messages,
-        max_completion_tokens: opts.maxTokens ?? 1024,
-        ...(opts.temperature != null ? { temperature: opts.temperature } : {}),
-      }),
+      body: JSON.stringify(payload),
     });
-    const j = json as any;
+    let j = json as any;
+    if (!res.ok && "temperature" in payload && /temperature/i.test(j?.error?.message || "")) {
+      delete payload.temperature;
+      ({ res, json } = await fetchJson(`${base}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
+        body: JSON.stringify(payload),
+      }));
+      j = json as any;
+    }
     if (!res.ok) throw new ProviderError(j?.error?.message || `OpenAI error ${res.status}`);
     return {
       text: j.choices?.[0]?.message?.content ?? "",
@@ -110,22 +124,28 @@ const openai: Adapter = {
 const anthropic: Adapter = {
   async chat(cfg, opts) {
     const base = cfg.baseUrl || "https://api.anthropic.com/v1";
-    const { res, json } = await fetchJson(`${base}/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": cfg.apiKey || "",
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: opts.model,
-        max_tokens: opts.maxTokens ?? 1024,
-        ...(opts.system ? { system: opts.system } : {}),
-        ...(opts.temperature != null ? { temperature: opts.temperature } : {}),
-        messages: opts.messages.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
-      }),
-    });
-    const j = json as any;
+    const headers = {
+      "Content-Type": "application/json",
+      "x-api-key": cfg.apiKey || "",
+      "anthropic-version": "2023-06-01",
+    };
+    const payload: Record<string, unknown> = {
+      model: opts.model,
+      max_tokens: opts.maxTokens ?? 1024,
+      ...(opts.system ? { system: opts.system } : {}),
+      messages: opts.messages.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+    };
+    // The newest Claude models (Claude 5 family) reject a custom `temperature`.
+    // Send it when asked, but retry once without it if the model refuses.
+    if (opts.temperature != null) payload.temperature = opts.temperature;
+
+    let { res, json } = await fetchJson(`${base}/messages`, { method: "POST", headers, body: JSON.stringify(payload) });
+    let j = json as any;
+    if (!res.ok && "temperature" in payload && /temperature/i.test(j?.error?.message || "")) {
+      delete payload.temperature;
+      ({ res, json } = await fetchJson(`${base}/messages`, { method: "POST", headers, body: JSON.stringify(payload) }));
+      j = json as any;
+    }
     if (!res.ok) throw new ProviderError(j?.error?.message || `Anthropic error ${res.status}`);
     const text = (j.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
     return { text, inputTokens: j.usage?.input_tokens ?? 0, outputTokens: j.usage?.output_tokens ?? 0 };

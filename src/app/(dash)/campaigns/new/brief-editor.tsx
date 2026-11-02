@@ -40,6 +40,9 @@ export function BriefEditor() {
   const router = useRouter();
   const [text, setText] = React.useState("");
   const [brief, setBrief] = React.useState<Brief | null>(null);
+  // Comma-separated fields are edited as raw text so commas/spaces survive
+  // typing; they're split into arrays only on submit.
+  const [raw, setRaw] = React.useState<Record<string, string>>({});
   const [parsing, setParsing] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
   const [note, setNote] = React.useState("");
@@ -51,22 +54,37 @@ export function BriefEditor() {
     const r = await post({ action: "parse", text });
     setParsing(false);
     if (r.brief) {
-      setBrief({ ...EMPTY, ...r.brief });
+      const b = { ...EMPTY, ...r.brief };
+      setBrief(b);
+      setRaw({
+        countries: (b.countries ?? []).join(", "),
+        cities: (b.cities ?? []).join(", "),
+        servicesOffered: (b.servicesOffered ?? []).join(", "),
+        requiredContactFields: (b.requiredContactFields ?? ["email"]).join(", "),
+      });
       setNote(r.ai ? "Parsed with the assistant. Review and edit before creating." : "No AI model assigned yet, so this is a basic parse — edit the fields below.");
     }
   }
 
+  const toArr = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
+
   async function create() {
     if (!brief) return;
     setCreating(true);
-    const r = await post({ action: "create", ...brief, briefRaw: text });
+    const payload = {
+      ...brief,
+      countries: toArr(raw.countries ?? ""),
+      cities: toArr(raw.cities ?? ""),
+      servicesOffered: toArr(raw.servicesOffered ?? ""),
+      requiredContactFields: toArr(raw.requiredContactFields ?? "email"),
+    };
+    const r = await post({ action: "create", ...payload, briefRaw: text });
     setCreating(false);
     if (r.id) router.push(`/campaigns/${r.id}`);
   }
 
-  const arr = (k: keyof Brief) => (brief?.[k] as string[]).join(", ");
-  const setArr = (k: keyof Brief) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setBrief((b) => (b ? { ...b, [k]: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) } : b));
+  const setRawField = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setRaw((r) => ({ ...r, [k]: e.target.value }));
   const setStr = (k: keyof Brief) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setBrief((b) => (b ? { ...b, [k]: e.target.value } : b));
 
@@ -101,15 +119,15 @@ export function BriefEditor() {
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Campaign name"><Input value={brief.name} onChange={setStr("name")} /></Field>
               <Field label="Business type / niche"><Input value={brief.businessType} onChange={setStr("businessType")} /></Field>
-              <Field label="Countries (comma separated)"><Input value={arr("countries")} onChange={setArr("countries")} /></Field>
-              <Field label="Cities (comma separated)"><Input value={arr("cities")} onChange={setArr("cities")} /></Field>
+              <Field label="Countries (comma separated)"><Input value={raw.countries ?? ""} onChange={setRawField("countries")} placeholder="usa, uk, canada, australia" /></Field>
+              <Field label="Cities (comma separated)"><Input value={raw.cities ?? ""} onChange={setRawField("cities")} /></Field>
               <Field label="Language"><Input value={brief.language} onChange={setStr("language")} /></Field>
-              <Field label="Services to offer (comma separated)"><Input value={arr("servicesOffered")} onChange={setArr("servicesOffered")} /></Field>
+              <Field label="Services to offer (comma separated)"><Input value={raw.servicesOffered ?? ""} onChange={setRawField("servicesOffered")} /></Field>
             </div>
             <Field label="Positive qualification criteria"><Textarea value={brief.positiveCriteria} onChange={setStr("positiveCriteria")} rows={2} /></Field>
             <Field label="Exclusions"><Textarea value={brief.exclusions} onChange={setStr("exclusions")} rows={2} /></Field>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Required contact fields"><Input value={arr("requiredContactFields")} onChange={setArr("requiredContactFields")} /></Field>
+              <Field label="Required contact fields"><Input value={raw.requiredContactFields ?? ""} onChange={setRawField("requiredContactFields")} /></Field>
               <Field label="Max new leads per day"><Input type="number" value={brief.maxNewLeadsPerDay} onChange={(e) => setBrief((b) => (b ? { ...b, maxNewLeadsPerDay: Number(e.target.value) } : b))} /></Field>
             </div>
             <div className="flex items-center gap-3">

@@ -9,7 +9,9 @@ const ENV_KEYS: Record<ConnectionKind, Record<string, string>> = {
   AI_ANTHROPIC: { apiKey: "ANTHROPIC_API_KEY", baseUrl: "ANTHROPIC_BASE_URL" },
   AI_CLAUDE_CODE: { binPath: "CLAUDE_CODE_BIN", runAsUser: "CLAUDE_CODE_USER", workdir: "CLAUDE_CODE_WORKDIR" },
   SEARCH: { apiKey: "SEARCH_API_KEY", baseUrl: "SEARCH_BASE_URL" },
-  EMAIL_VERIFIER: { apiKey: "VERIFIER_API_KEY", baseUrl: "VERIFIER_BASE_URL" },
+  EMAIL_VERIFIER: { apiKey: "VERIFIER_API_KEY", baseUrl: "VERIFIER_BASE_URL", webhookSecret: "VERIFIER_WEBHOOK_SECRET" },
+  SPEECH_STT: { apiKey: "STT_API_KEY", baseUrl: "STT_BASE_URL" },
+  SPEECH_TTS: { apiKey: "TTS_API_KEY", baseUrl: "TTS_BASE_URL" },
 };
 
 export type ProviderConfig = Record<string, string | undefined>;

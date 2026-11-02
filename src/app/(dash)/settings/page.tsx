@@ -2,7 +2,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/misc";
 import { Card } from "@/components/ui/card";
 import {
-  User, Boxes, PlugZap, Search, MailCheck, Mails, Gauge, ShieldBan, Lock, DatabaseBackup, PenLine, ChevronRight,
+  User, Boxes, PlugZap, Search, MailCheck, Mails, Gauge, ShieldBan, Lock, DatabaseBackup, PenLine, ChevronRight, Bot,
 } from "lucide-react";
 
 const SECTIONS = [
@@ -10,6 +10,7 @@ const SECTIONS = [
   { href: "/settings/services", icon: Boxes, title: "Services & portfolio", desc: "Approved service descriptions and examples." },
   { href: "/settings/writing", icon: PenLine, title: "Writing preferences", desc: "Voice, style and prohibited claims." },
   { href: "/settings/connections", icon: PlugZap, title: "AI connections & models", desc: "OpenAI, Anthropic, Claude Code. Model allowlist." },
+  { href: "/settings/voice", icon: Bot, title: "Voice & assistant", desc: "Arlo persona, speech providers, memory, daily briefing." },
   { href: "/settings/search", icon: Search, title: "Search provider", desc: "Discovery API for finding businesses." },
   { href: "/settings/verifier", icon: MailCheck, title: "Email verifier", desc: "Deliverability checks through an adapter." },
   { href: "/settings/mailboxes", icon: Mails, title: "Mailboxes", desc: "Sending identities, SMTP and IMAP." },

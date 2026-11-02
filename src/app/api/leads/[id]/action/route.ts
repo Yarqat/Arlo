@@ -4,11 +4,17 @@ import { prisma } from "@/lib/db";
 import { ownerRoute } from "@/lib/api";
 import { enqueue } from "@/lib/queue";
 import { changeStage } from "@/lib/pipeline/stage";
+import { classifyEmailType } from "@/lib/dedup";
 import { audit } from "@/lib/audit";
+import { EmailType } from "@prisma/client";
 
 const schema = z.object({
-  type: z.enum(["research", "verify", "draft", "stage"]),
+  type: z.enum(["research", "verify", "draft", "stage", "add_contact", "delete_contact"]),
   stage: z.string().optional(),
+  email: z.string().optional(),
+  name: z.string().optional(),
+  role: z.string().optional(),
+  contactId: z.string().optional(),
 });
 
 export const POST = ownerRoute(async (req) => {
@@ -21,6 +27,27 @@ export const POST = ownerRoute(async (req) => {
   if (b.type === "stage") {
     if (!b.stage) return NextResponse.json({ error: "stage required" }, { status: 400 });
     await changeStage(lead.id, b.stage as any, "owner", "Manual change");
+    return NextResponse.json({ ok: true });
+  }
+
+  if (b.type === "add_contact") {
+    const email = (b.email || "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+    const name = (b.name || "").trim();
+    const emailType = classifyEmailType(email, !!name) as EmailType;
+    const contact = await prisma.contact.upsert({
+      where: { leadId_email: { leadId: lead.id, email } },
+      create: { leadId: lead.id, email, name, role: (b.role || "").trim(), emailType, source: "manual" },
+      update: { name: name || undefined, role: (b.role || "").trim() || undefined },
+    });
+    await audit("owner", "contact_add", "Lead", lead.id, `Added contact ${email} to ${lead.businessName}`);
+    return NextResponse.json({ ok: true, contactId: contact.id });
+  }
+
+  if (b.type === "delete_contact") {
+    if (!b.contactId) return NextResponse.json({ error: "contactId required" }, { status: 400 });
+    await prisma.contact.deleteMany({ where: { id: b.contactId, leadId: lead.id } });
+    await audit("owner", "contact_delete", "Lead", lead.id, `Removed a contact from ${lead.businessName}`);
     return NextResponse.json({ ok: true });
   }
 

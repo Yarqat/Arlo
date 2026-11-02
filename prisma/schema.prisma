@@ -202,6 +202,7 @@ enum VerificationStatus {
   DISPOSABLE
   ROLE
   UNVERIFIED
+  PENDING
 }
 
 model VerificationResult {
@@ -210,6 +211,9 @@ model VerificationResult {
   contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
   provider    String
   status      VerificationStatus
+  // Provider-side id for asynchronous verifiers (e.g. Email Awesome), so the
+  // results webhook can match a verdict back to this pending row.
+  externalId  String?
   isRoleAddress Boolean @default(false)
   isCatchAll  Boolean  @default(false)
   isDisposable Boolean @default(false)
@@ -220,6 +224,7 @@ model VerificationResult {
 
   @@index([contactId])
   @@index([status])
+  @@index([externalId])
 }
 
 // ---------------------------------------------------------------------------
@@ -608,6 +613,8 @@ enum ConnectionKind {
   AI_CLAUDE_CODE
   SEARCH
   EMAIL_VERIFIER
+  SPEECH_STT
+  SPEECH_TTS
 }
 
 enum ConnectionStatus {
@@ -679,6 +686,8 @@ enum UsageKind {
   EMAIL
   LEAD
   RESEARCH
+  TRANSCRIPTION
+  SPEECH
 }
 
 // Atomic counters per scope/day/kind. Reservations check-and-increment inside a tx.
@@ -803,5 +812,73 @@ model GlobalSettings {
   retentionDays     Int     @default(0) // 0 = keep forever
   blockRemoteImages Boolean @default(true)
 
+  // Personal assistant (Arlo) + voice
+  assistantName        String  @default("Arlo")
+  assistantSpeakByDefault Boolean @default(false) // spoken responses off until enabled
+  sttVoiceModel        String  @default("") // selected STT model (provider-specific)
+  ttsVoice             String  @default("") // selected TTS voice id/name
+  ttsModel             String  @default("") // selected TTS model
+  dailyBriefingEnabled Boolean @default(false)
+  dailyBriefingHour    Int     @default(8) // local hour (timezone) for the daily briefing
+
   updatedAt         DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Personal assistant: memory, reminders, notifications
+// ---------------------------------------------------------------------------
+
+enum MemoryScope {
+  PERSONAL
+  BUSINESS
+}
+
+// Durable, owner-editable facts/preferences the assistant may use. NEVER stores
+// passwords or integration credentials (enforced in code + UI).
+model AssistantMemory {
+  id        String      @id @default(cuid())
+  scope     MemoryScope
+  title     String
+  content   String
+  pinned    Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([scope])
+}
+
+enum ReminderStatus {
+  SCHEDULED
+  FIRED
+  DONE
+  CANCELLED
+}
+
+model Reminder {
+  id        String         @id @default(cuid())
+  title     String
+  details   String         @default("")
+  dueAt     DateTime
+  timezone  String         @default("Asia/Karachi")
+  status    ReminderStatus @default(SCHEDULED)
+  source    String         @default("assistant") // assistant | manual
+  firedAt   DateTime?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([status, dueAt])
+}
+
+// Surfaced to the owner in the UI: fired reminders and daily briefings.
+model AssistantNotification {
+  id        String   @id @default(cuid())
+  kind      String   // reminder | briefing
+  title     String
+  body      String   @default("")
+  read      Boolean  @default(false)
+  dayKey    String   @default("") // used to de-duplicate once-per-day briefings
+  createdAt DateTime @default(now())
+
+  @@index([read, createdAt])
+  @@index([kind, dayKey])
 }

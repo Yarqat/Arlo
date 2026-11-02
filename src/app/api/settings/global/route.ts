@@ -22,6 +22,11 @@ const schema = z.object({
   unsubscribeFooter: z.string().max(1000).optional(),
   retentionDays: num.int().optional(),
   blockRemoteImages: z.boolean().optional(),
+  // Assistant (Arlo) + voice
+  assistantName: z.string().max(40).optional(),
+  assistantSpeakByDefault: z.boolean().optional(),
+  dailyBriefingEnabled: z.boolean().optional(),
+  dailyBriefingHour: num.int().min(0).max(23).optional(),
 });
 
 export const POST = ownerRoute(async (req) => {
