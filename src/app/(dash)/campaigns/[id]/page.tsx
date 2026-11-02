@@ -5,9 +5,26 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Stat } from "@/components/ui/misc";
 import { stageLabel, stageTone, titleCase } from "@/lib/labels";
+import { relativeTime } from "@/lib/time";
 import { CampaignControls } from "./campaign-controls";
 import { DraftsReview } from "./drafts-review";
 import { ArrowLeft } from "lucide-react";
+
+// Honest outbound status. SMTP can confirm "accepted by the server"; true
+// "delivered" needs a provider delivery event (webhook), which isn't wired by
+// default. Opens/clicks are not tracked (no pixels).
+function sentStatus(state: string): { label: string; tone: "success" | "info" | "warning" | "danger" | "neutral" } {
+  switch (state) {
+    case "DELIVERED": return { label: "Delivered", tone: "success" };
+    case "ACCEPTED": return { label: "Sent · accepted", tone: "success" };
+    case "SENT": return { label: "Sent", tone: "info" };
+    case "SENDING": return { label: "Sending…", tone: "info" };
+    case "QUEUED": return { label: "Queued", tone: "warning" };
+    case "BOUNCED": return { label: "Bounced", tone: "danger" };
+    case "FAILED": return { label: "Failed", tone: "danger" };
+    default: return { label: state.toLowerCase(), tone: "neutral" };
+  }
+}
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +33,7 @@ export default async function CampaignDetail({ params }: { params: Promise<{ id:
   const campaign = await prisma.campaign.findUnique({ where: { id } });
   if (!campaign) notFound();
 
-  const [mailboxes, sequences, memberCount, drafts, stageGroups, sent, replies] = await Promise.all([
+  const [mailboxes, sequences, memberCount, drafts, stageGroups, sent, replies, outbound] = await Promise.all([
     prisma.mailbox.findMany({ select: { id: true, senderName: true, email: true, status: true } }),
     prisma.followUpSequence.findMany({ select: { id: true, name: true } }),
     prisma.campaignMembership.count({ where: { campaignId: id } }),
@@ -29,6 +46,12 @@ export default async function CampaignDetail({ params }: { params: Promise<{ id:
     prisma.lead.groupBy({ by: ["stage"], where: { primaryCampaignId: id }, _count: true }),
     prisma.message.count({ where: { campaignId: id, direction: "OUTBOUND", state: { in: ["ACCEPTED", "SENT", "DELIVERED"] } } }),
     prisma.message.count({ where: { campaignId: id, direction: "INBOUND", isAutoReply: false } }),
+    prisma.message.findMany({
+      where: { campaignId: id, direction: "OUTBOUND", state: { in: ["QUEUED", "SENDING", "SENT", "ACCEPTED", "DELIVERED", "BOUNCED", "FAILED"] } },
+      orderBy: { createdAt: "desc" },
+      take: 80,
+      include: { lead: { select: { businessName: true } }, contact: { select: { email: true } } },
+    }),
   ]);
 
   return (
@@ -106,6 +129,36 @@ export default async function CampaignDetail({ params }: { params: Promise<{ id:
         </CardHeader>
         <CardContent>
           <DraftsReview drafts={drafts.map((d) => ({ id: d.id, subject: d.subject, bodyText: d.bodyText, to: d.contact?.email ?? d.toAddrs[0] ?? "", business: d.lead?.businessName ?? "" }))} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sent &amp; queued emails</CardTitle>
+          <CardDescription>
+            “Accepted” means your mail server accepted the message. Confirmed “Delivered” needs a provider delivery event (webhook), which isn’t enabled by default. Opens and clicks are not tracked (no tracking pixels).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {outbound.length === 0 ? (
+            <p className="text-sm text-muted">Nothing sent yet. Approve a draft above to send it.</p>
+          ) : (
+            <div className="divide-y divide-border">
+              {outbound.map((m) => {
+                const s = sentStatus(m.state);
+                return (
+                  <div key={m.id} className="flex items-center gap-3 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{m.contact?.email ?? m.toAddrs[0] ?? "—"}</p>
+                      <p className="truncate text-xs text-muted">{m.lead?.businessName ? `${m.lead.businessName} · ` : ""}{m.subject}</p>
+                    </div>
+                    <Badge tone={s.tone}>{s.label}</Badge>
+                    <span className="w-16 shrink-0 text-right text-xs text-muted-2">{relativeTime(m.sentAt ?? m.createdAt)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

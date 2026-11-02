@@ -7,7 +7,9 @@ import { testSmtp, testImap, smtpOf, imapOf } from "@/lib/providers/email";
 import { audit } from "@/lib/audit";
 
 const cfg = z.object({
-  host: z.string().min(1),
+  // Strip whitespace and any stray leading junk (e.g. a pasted "=") so a bad
+  // paste can't produce an unresolvable hostname (DNS EBADNAME).
+  host: z.string().min(1).transform((s) => s.trim().replace(/^[^A-Za-z0-9]+/, "").replace(/\s+/g, "")),
   port: z.coerce.number().int().min(1).max(65535),
   secure: z.boolean(),
   user: z.string().min(1),

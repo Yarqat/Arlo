@@ -164,13 +164,20 @@ async function tick() {
       });
       for (const l of toDraft) await enqueue("outreach", "draft-lead", { leadId: l.id });
 
-      // Auto-send ONLY for AUTOMATIC campaigns. Preflight enforces every guard
-      // (suppression, verification, schedule, budgets). APPROVE_FIRST campaigns
-      // leave drafts for the owner to approve on the campaign screen.
+      // Owner-approved emails sit in QUEUED (e.g. waiting on the hourly limit or
+      // sending window). Retry them for ANY active campaign so they flow out
+      // automatically — preflight still enforces every guard.
+      const queued = await prisma.message.findMany({
+        where: { campaignId: c.id, direction: "OUTBOUND", state: "QUEUED" },
+        take: 15,
+      });
+      for (const m of queued) await enqueue("outreach", "send", { action: "send", messageId: m.id });
+
+      // Auto-send NEW drafts only for AUTOMATIC campaigns. APPROVE_FIRST /
+      // DRAFT_ONLY leave new drafts for the owner to approve.
       if (c.outreachMode === "AUTOMATIC") {
-        // QUEUED = previously blocked (e.g. outside hours); retry when eligible.
         const drafts = await prisma.message.findMany({
-          where: { campaignId: c.id, direction: "OUTBOUND", state: { in: ["DRAFT", "QUEUED"] }, followUpStep: 0 },
+          where: { campaignId: c.id, direction: "OUTBOUND", state: "DRAFT", followUpStep: 0 },
           take: 15,
         });
         for (const m of drafts) {
