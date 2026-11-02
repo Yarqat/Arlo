@@ -17,7 +17,7 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border-strong bg-surface px-6 py-14 text-center",
+        "flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border-strong bg-surface px-6 py-14 text-center",
         className,
       )}
     >
@@ -43,10 +43,10 @@ export function Stat({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-lg border border-border bg-surface p-4", className)}>
+    <div className={cn("rounded-2xl border border-border bg-surface p-5 shadow-sm", className)}>
       <p className="text-xs font-medium text-muted">{label}</p>
-      <p className="mt-1.5 text-2xl font-semibold tracking-tight tabular-nums">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-muted-2">{sub}</p>}
+      <p className="mt-2 text-[26px] font-semibold leading-none tracking-tight tabular-nums">{value}</p>
+      {sub && <p className="mt-1 text-xs text-muted-2">{sub}</p>}
     </div>
   );
 }
@@ -69,7 +69,7 @@ export function Alert({
     success: "border-success/30 bg-success-soft text-success",
   };
   return (
-    <div className={cn("rounded-md border px-4 py-3 text-sm", tones[tone], className)}>
+    <div className={cn("rounded-xl border px-4 py-3 text-sm", tones[tone], className)}>
       {title && <p className="font-medium">{title}</p>}
       {children && <div className={cn(title && "mt-1", "text-foreground/80")}>{children}</div>}
     </div>
@@ -88,7 +88,7 @@ export function PageHeader({
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div className="space-y-1">
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         {description && <p className="text-sm text-muted">{description}</p>}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}

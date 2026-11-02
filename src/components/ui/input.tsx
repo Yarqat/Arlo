@@ -6,7 +6,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        "flex h-9 w-full rounded-md border border-border-strong bg-surface px-3 py-1 text-sm text-foreground placeholder:text-muted-2 transition-colors focus-visible:border-ring disabled:opacity-50",
+        "flex h-10 w-full rounded-lg border border-border bg-surface px-3.5 text-sm text-foreground placeholder:text-muted-2 outline-none transition-[box-shadow,border-color] focus:border-ring focus:ring-2 focus:ring-ring/30 disabled:opacity-50",
         className,
       )}
       {...props}
@@ -22,7 +22,7 @@ export const Textarea = React.forwardRef<
   <textarea
     ref={ref}
     className={cn(
-      "flex min-h-20 w-full rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-foreground placeholder:text-muted-2 focus-visible:border-ring disabled:opacity-50",
+      "flex min-h-20 w-full rounded-lg border border-border bg-surface px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-2 outline-none transition-[box-shadow,border-color] focus:border-ring focus:ring-2 focus:ring-ring/30 disabled:opacity-50",
       className,
     )}
     {...props}
@@ -37,7 +37,7 @@ export const Select = React.forwardRef<
   <select
     ref={ref}
     className={cn(
-      "flex h-9 w-full rounded-md border border-border-strong bg-surface px-3 text-sm text-foreground focus-visible:border-ring disabled:opacity-50",
+      "flex h-10 w-full rounded-lg border border-border bg-surface px-3.5 text-sm text-foreground outline-none transition-[box-shadow,border-color] focus:border-ring focus:ring-2 focus:ring-ring/30 disabled:opacity-50",
       className,
     )}
     {...props}
