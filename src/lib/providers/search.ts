@@ -19,6 +19,7 @@ export interface SearchQuery {
   country?: string;
   city?: string;
   limit?: number;
+  page?: number; // 1-indexed; lets discovery paginate for more results
 }
 
 const TIMEOUT = 20_000;
@@ -42,7 +43,7 @@ async function serper(cfg: Record<string, string | undefined>, q: SearchQuery): 
   const { res, json } = await jget("https://google.serper.dev/places", {
     method: "POST",
     headers: { "X-API-KEY": cfg.apiKey || "", "Content-Type": "application/json" },
-    body: JSON.stringify({ q: term, num: q.limit ?? 20 }),
+    body: JSON.stringify({ q: term, num: q.limit ?? 20, ...(q.page && q.page > 1 ? { page: q.page } : {}) }),
   });
   if (!res.ok) throw new Error(json?.message || `Serper error ${res.status}`);
   return (json.places ?? []).map((p: any) => ({

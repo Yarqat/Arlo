@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ stage?: string; q?: string }>;
+  searchParams: Promise<{ stage?: string; q?: string; page?: string }>;
 }) {
   const sp = await searchParams;
   const where: Record<string, unknown> = {};
@@ -27,16 +27,28 @@ export default async function LeadsPage({
       { city: { contains: sp.q, mode: "insensitive" } },
     ];
 
+  const PER = 50;
+  const page = Math.max(1, parseInt(sp.page || "1", 10) || 1);
+
   const [leads, total, matchCount] = await Promise.all([
     prisma.lead.findMany({
       where,
       orderBy: { updatedAt: "desc" },
-      take: 100,
+      skip: (page - 1) * PER,
+      take: PER,
       include: { contacts: { take: 1 }, _count: { select: { contacts: true } } },
     }),
     prisma.lead.count(),
     prisma.lead.count({ where }),
   ]);
+  const totalPages = Math.max(1, Math.ceil(matchCount / PER));
+  const qs = (p: number) => {
+    const u = new URLSearchParams();
+    if (sp.q) u.set("q", sp.q);
+    if (sp.stage) u.set("stage", sp.stage);
+    u.set("page", String(p));
+    return `/leads?${u.toString()}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -116,6 +128,25 @@ export default async function LeadsPage({
             </TBody>
           </Table>
         </Card>
+      )}
+
+      {matchCount > PER && (
+        <div className="flex items-center justify-between text-sm text-muted">
+          <span>Showing {(page - 1) * PER + 1}–{Math.min(page * PER, matchCount)} of {matchCount.toLocaleString()}</span>
+          <div className="flex items-center gap-2">
+            {page > 1 ? (
+              <Link href={qs(page - 1)}><Button variant="outline" size="sm">Previous</Button></Link>
+            ) : (
+              <Button variant="outline" size="sm" disabled>Previous</Button>
+            )}
+            <span className="px-1 text-xs">Page {page} of {totalPages}</span>
+            {page < totalPages ? (
+              <Link href={qs(page + 1)}><Button variant="outline" size="sm">Next</Button></Link>
+            ) : (
+              <Button variant="outline" size="sm" disabled>Next</Button>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

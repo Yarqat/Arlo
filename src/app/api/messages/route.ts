@@ -8,6 +8,7 @@ import { audit } from "@/lib/audit";
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("send"), id: z.string() }),
   z.object({ action: z.literal("discard"), id: z.string() }),
+  z.object({ action: z.literal("unqueue"), id: z.string() }), // pull a queued email back to draft
   z.object({ action: z.literal("edit"), id: z.string(), subject: z.string().max(300).optional(), bodyText: z.string().max(20000).optional() }),
 ]);
 
@@ -24,15 +25,23 @@ export const POST = ownerRoute(async (req) => {
     return NextResponse.json({ ok: true });
   }
   if (b.action === "discard") {
-    if (msg.state !== "DRAFT") return NextResponse.json({ error: "Only drafts can be discarded" }, { status: 400 });
+    if (!["DRAFT", "QUEUED"].includes(msg.state)) return NextResponse.json({ error: "Only unsent emails can be discarded" }, { status: 400 });
     await prisma.message.delete({ where: { id: b.id } });
+    await audit("owner", "message_discard", "Message", b.id, "Owner discarded an unsent email");
     return NextResponse.json({ ok: true });
   }
-  // edit
-  if (msg.state !== "DRAFT") return NextResponse.json({ error: "Only drafts can be edited" }, { status: 400 });
+  if (b.action === "unqueue") {
+    if (msg.state !== "QUEUED") return NextResponse.json({ error: "Only a queued email can be pulled back" }, { status: 400 });
+    await prisma.message.update({ where: { id: b.id }, data: { state: "DRAFT" } });
+    await audit("owner", "message_unqueue", "Message", b.id, "Owner pulled a queued email back to draft");
+    return NextResponse.json({ ok: true });
+  }
+  // edit — allowed while the email hasn't actually been sent (draft or queued)
+  if (!["DRAFT", "QUEUED"].includes(msg.state)) return NextResponse.json({ error: "A sent email can't be edited" }, { status: 400 });
   await prisma.message.update({
     where: { id: b.id },
     data: { ...(b.subject != null ? { subject: b.subject } : {}), ...(b.bodyText != null ? { bodyText: b.bodyText, snippet: b.bodyText.slice(0, 140) } : {}) },
   });
+  await audit("owner", "message_edit", "Message", b.id, "Owner edited an unsent email");
   return NextResponse.json({ ok: true });
 });

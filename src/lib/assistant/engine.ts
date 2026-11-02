@@ -309,6 +309,54 @@ const TOOLS: Record<string, Tool> = {
     },
   },
 
+  draft_all: {
+    confirm: true,
+    async resolve(args) {
+      const name = String(args?.campaign ?? args?.name ?? "").trim();
+      let campaignId: string | null = null, label = "all campaigns";
+      if (name && !/^(all|everything|every|everyone|them|leads?)$/i.test(name)) {
+        const r = await findCampaign(name);
+        if (!r.ok) return r;
+        campaignId = r.args.id; label = `"${r.args.name}"`;
+      }
+      const where: any = { contacts: { some: {} }, messages: { none: { direction: "OUTBOUND", followUpStep: 0 } }, ...(campaignId ? { primaryCampaignId: campaignId } : {}) };
+      const count = await prisma.lead.count({ where });
+      if (count === 0) return { ok: false, reply: `No leads need a first outreach email right now${campaignId ? ` in ${label}` : ""} — they may already have a draft, or no email on file.` };
+      return { ok: true, args: { campaign: name, campaignId, label }, summary: `Write a first outreach email for ${count} lead(s) in ${label}` };
+    },
+    async run(args) {
+      const where: any = { contacts: { some: {} }, messages: { none: { direction: "OUTBOUND", followUpStep: 0 } }, ...(args.campaignId ? { primaryCampaignId: args.campaignId } : {}) };
+      const leads = await prisma.lead.findMany({ where, select: { id: true }, take: 1000 });
+      for (const l of leads) await enqueue("outreach", "draft-lead", { leadId: l.id });
+      await audit("assistant", "draft_all", "Campaign", args.campaignId ?? "bulk", `Queued ${leads.length} outreach drafts (${args.label})`);
+      return { reply: `On it — I'm writing ${leads.length} outreach email(s) for ${args.label}. They'll appear under "Drafts to review" within a few minutes.`, ...(args.campaignId ? { link: `/campaigns/${args.campaignId}` } : {}) };
+    },
+  },
+
+  verify_all: {
+    confirm: true,
+    async resolve(args) {
+      const name = String(args?.campaign ?? args?.name ?? "").trim();
+      let campaignId: string | null = null, label = "all campaigns";
+      if (name && !/^(all|everything|every|everyone|them|leads?)$/i.test(name)) {
+        const r = await findCampaign(name);
+        if (!r.ok) return r;
+        campaignId = r.args.id; label = `"${r.args.name}"`;
+      }
+      const where: any = { contacts: { some: {} }, ...(campaignId ? { primaryCampaignId: campaignId } : {}) };
+      const count = await prisma.lead.count({ where });
+      if (count === 0) return { ok: false, reply: `No leads with an email to verify${campaignId ? ` in ${label}` : ""}.` };
+      return { ok: true, args: { campaign: name, campaignId, label }, summary: `Verify the email addresses of ${count} lead(s) in ${label}` };
+    },
+    async run(args) {
+      const where: any = { contacts: { some: {} }, ...(args.campaignId ? { primaryCampaignId: args.campaignId } : {}) };
+      const leads = await prisma.lead.findMany({ where, select: { id: true }, take: 1000 });
+      for (const l of leads) await enqueue("verify", "verify-lead", { leadId: l.id });
+      await audit("assistant", "verify_all", "Campaign", args.campaignId ?? "bulk", `Queued verification for ${leads.length} leads (${args.label})`);
+      return { reply: `Queued email verification for ${leads.length} lead(s) in ${args.label}. Results appear on each lead as they come back.`, ...(args.campaignId ? { link: `/campaigns/${args.campaignId}` } : {}) };
+    },
+  },
+
   resume_all: {
     confirm: true,
     resolve: async () => ({ ok: true, args: {}, summary: "Resume all outbound (lift the emergency pause)" }),
@@ -338,6 +386,8 @@ activate_campaign {name}
 pause_campaign {name}
 set_campaign_mode {name, mode: draft-only|approve-first|automatic}
 run_discovery {name}
+draft_all {campaign?}   (write a first outreach email for every lead — leave campaign empty for all, or name one)
+verify_all {campaign?}  (verify every lead's email address — leave campaign empty for all, or name one)
 resume_all {}
 create_draft_campaign {description}
 answer {}  (use when just replying/clarifying — put your words in "reply")
@@ -379,7 +429,8 @@ export async function interpret(messages: { role: "user" | "assistant"; content:
     `Current local time (${settings.timezone}): ${nowLocalString(settings.timezone)}.`,
     "Decide the single best next step and reply ONLY with JSON: {\"tool\":\"<name>\",\"args\":{...},\"reply\":\"<your words>\"}.",
     "Use tool \"answer\" (with your words in reply) for questions, chit-chat, or when you need to ask a clarifying question.",
-    "Never claim you did something unless a tool does it. For scheduling, resolve times to absolute local wall-clock in whenLocal as YYYY-MM-DD HH:mm. Resolve vague names by using the closest tool and letting it disambiguate.",
+    "CRITICAL: if the user asks you to DO something (draft/write outreach, verify, discover, schedule, pause, remember, etc.), you MUST return the matching tool — NEVER use \"answer\" to claim you did it. Saying \"done\" or \"I've created them\" without calling a tool is forbidden. \"Create/write outreach for all\" => draft_all. \"Verify all\" => verify_all.",
+    "For scheduling, resolve times to absolute local wall-clock in whenLocal as YYYY-MM-DD HH:mm. Resolve vague names by using the closest tool and letting it disambiguate.",
     "You never send email directly; sending only happens through the gated campaign pipeline (suppression, budgets, verification, schedule all still apply).",
     "Tools:",
     TOOL_CATALOG,

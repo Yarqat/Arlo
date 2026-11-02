@@ -29,7 +29,13 @@ export function dedupeKey(input: { website?: string; email?: string; businessNam
 }
 
 export function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase();
+  let e = (email || "").trim();
+  // Undo URL-encoding artifacts from scraped mailto links (e.g. "%20info@…").
+  try { if (/%[0-9a-f]{2}/i.test(e)) e = decodeURIComponent(e); } catch { /* leave as-is */ }
+  e = e.replace(/\s+/g, "");            // remove any whitespace
+  e = e.replace(/^[^A-Za-z0-9]+/, "");  // strip stray leading characters
+  e = e.replace(/[^A-Za-z0-9.]+$/, ""); // strip stray trailing characters
+  return e.toLowerCase();
 }
 
 const ROLE_LOCALPARTS = new Set([
