@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 const FILTERS: Record<string, any> = {
   all: {},
+  sent: { messages: { some: { direction: "OUTBOUND" } } },
   attention: { needsAttention: true },
   interested: { labels: { has: "interested" } },
   out_of_office: { labels: { has: "out_of_office" } },
@@ -35,13 +36,14 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
     Promise.all([
       prisma.thread.count({ where: { needsAttention: true, archived: false } }),
       prisma.thread.count({ where: { labels: { has: "interested" }, archived: false } }),
+      prisma.thread.count({ where: { messages: { some: { direction: "OUTBOUND" } }, archived: false } }),
     ]),
   ]);
 
   return (
     <div className="space-y-6">
       <PageHeader title="Inbox" description="Unified conversations across your connected mailboxes." />
-      <InboxTabs active={tab} attention={counts[0]} interested={counts[1]} />
+      <InboxTabs active={tab} attention={counts[0]} interested={counts[1]} sent={counts[2]} />
 
       {threads.length === 0 ? (
         <EmptyState
