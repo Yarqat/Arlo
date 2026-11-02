@@ -150,17 +150,27 @@ async function tick() {
       // Kept separate from the NEW query above so a backlog of NEW leads can't
       // starve these retries out of every tick's slots.
       const staleBefore = new Date(Date.now() - 10 * 60 * 1000);
-      const toRetry = await prisma.lead.findMany({
-        where: {
-          primaryCampaignId: c.id,
-          website: { not: "" },
-          stage: "RESEARCHING",
-          researchedAt: null,
-          updatedAt: { lt: staleBefore },
-        },
+      const retryWhere = {
+        primaryCampaignId: c.id,
+        website: { not: "" },
+        stage: "RESEARCHING" as const,
+        researchedAt: null,
+        updatedAt: { lt: staleBefore },
+      };
+      // Research leads that already have a contact FIRST — those are the ones
+      // that can turn into a sent email, so prioritising them keeps outreach
+      // flowing instead of spending the budget on contactless dead-ends.
+      const retryWithContact = await prisma.lead.findMany({
+        where: { ...retryWhere, contacts: { some: {} } },
         take: 10,
       });
-      for (const l of toRetry) await enqueue("research", "research-lead", { leadId: l.id });
+      const slotsLeft = 10 - retryWithContact.length;
+      const retryRest = slotsLeft > 0
+        ? await prisma.lead.findMany({ where: { ...retryWhere, contacts: { none: {} } }, take: slotsLeft })
+        : [];
+      for (const l of [...retryWithContact, ...retryRest]) {
+        await enqueue("research", "research-lead", { leadId: l.id });
+      }
 
       // verify QUALIFIED leads lacking a fresh verification
       const toVerify = await prisma.lead.findMany({
