@@ -88,6 +88,8 @@ export default async function CampaignDetail({ params }: { params: Promise<{ id:
         allowUnverified={campaign.allowUnverified}
         autoDiscover={campaign.autoDiscover}
         offer={campaign.offer}
+        timezone={campaign.timezone}
+        businessHours={campaign.businessHours as { days?: number[]; start?: string; end?: string } | null}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">

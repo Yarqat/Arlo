@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ownerRoute } from "@/lib/api";
 import { runAiTask, extractJson, NoModelAssignedError } from "@/lib/providers/ai";
@@ -39,6 +40,12 @@ const schema = z.discriminatedUnion("action", [
     allowUnverified: z.boolean().optional(),
     autoDiscover: z.boolean().optional(),
     offer: z.string().max(2000).optional(),
+    timezone: z.string().max(64).optional(),
+    businessHours: z.object({
+      days: z.array(z.coerce.number().int().min(1).max(7)).optional(),
+      start: z.string().max(5).optional(),
+      end: z.string().max(5).optional(),
+    }).nullable().optional(),
   }),
   z.object({ action: z.literal("discover"), id: z.string() }),
 ]);
@@ -118,6 +125,8 @@ export const POST = ownerRoute(async (req) => {
     if (b.allowUnverified !== undefined) data.allowUnverified = b.allowUnverified;
     if (b.autoDiscover !== undefined) data.autoDiscover = b.autoDiscover;
     if (b.offer !== undefined) data.offer = b.offer;
+    if (b.timezone !== undefined) data.timezone = b.timezone;
+    if (b.businessHours !== undefined) data.businessHours = b.businessHours === null ? Prisma.DbNull : b.businessHours;
     await prisma.campaign.update({ where: { id: b.id }, data });
     await audit("owner", "campaign_control", "Campaign", b.id, `Updated ${campaign.name}: ${JSON.stringify(data)}`);
     return NextResponse.json({ ok: true });

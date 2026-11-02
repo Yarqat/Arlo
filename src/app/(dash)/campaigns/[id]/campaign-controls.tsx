@@ -12,8 +12,26 @@ async function post(body: unknown) {
   return res.json();
 }
 
+const TIMEZONES = [
+  { v: "America/New_York", l: "US Eastern (New York)" },
+  { v: "America/Chicago", l: "US Central (Chicago)" },
+  { v: "America/Denver", l: "US Mountain (Denver)" },
+  { v: "America/Los_Angeles", l: "US Pacific (Los Angeles)" },
+  { v: "Europe/London", l: "UK (London)" },
+  { v: "Australia/Sydney", l: "Australia (Sydney)" },
+  { v: "America/Toronto", l: "Canada (Toronto)" },
+  { v: "Asia/Karachi", l: "Pakistan (Karachi)" },
+];
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function hourLabel(h: number) {
+  const ampm = h < 12 ? "am" : "pm";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:00 ${ampm}`;
+}
+
 export function CampaignControls({
-  id, status, mode, sendingMailboxId, followUpSequenceId, mailboxes, sequences, allowUnverified, autoDiscover, offer,
+  id, status, mode, sendingMailboxId, followUpSequenceId, mailboxes, sequences, allowUnverified, autoDiscover, offer, timezone, businessHours,
 }: {
   id: string;
   status: string;
@@ -25,12 +43,21 @@ export function CampaignControls({
   allowUnverified: boolean;
   autoDiscover: boolean;
   offer: string;
+  timezone: string;
+  businessHours: { days?: number[]; start?: string; end?: string } | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [confirmAuto, setConfirmAuto] = React.useState(false);
   const [offerText, setOfferText] = React.useState(offer);
   const [offerSaved, setOfferSaved] = React.useState(false);
+  // Sending window
+  const [winOn, setWinOn] = React.useState(!!businessHours);
+  const [tz, setTz] = React.useState(timezone || "America/New_York");
+  const [startH, setStartH] = React.useState(parseInt((businessHours?.start ?? "08:00").split(":")[0], 10));
+  const [endH, setEndH] = React.useState(parseInt((businessHours?.end ?? "11:00").split(":")[0], 10));
+  const [days, setDays] = React.useState<number[]>(businessHours?.days ?? [1, 2, 3, 4, 5]);
+  const [winSaved, setWinSaved] = React.useState(false);
 
   async function control(body: Record<string, unknown>) {
     setBusy(true);
@@ -109,6 +136,55 @@ export function CampaignControls({
           <div className="mt-2 flex items-center gap-3">
             <Button size="sm" variant="secondary" disabled={busy} onClick={async () => { await control({ offer: offerText }); setOfferSaved(true); }}>Save offer</Button>
             {offerSaved && <span className="text-xs text-success">Saved — new drafts will use this.</span>}
+          </div>
+        </div>
+
+        <div className="space-y-3 border-t border-border pt-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">Sending window</span>
+            <Switch checked={winOn} onCheckedChange={(v) => { setWinOn(v); setWinSaved(false); }} />
+          </div>
+          <p className="text-xs text-muted">Only send during these hours in the chosen timezone — so emails land in the recipient&apos;s morning, not yours.</p>
+          {winOn && (
+            <>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <Field label="Recipient timezone">
+                  <Select value={tz} onChange={(e) => { setTz(e.target.value); setWinSaved(false); }}>
+                    {TIMEZONES.map((z) => <option key={z.v} value={z.v}>{z.l}</option>)}
+                  </Select>
+                </Field>
+                <Field label="From">
+                  <Select value={String(startH)} onChange={(e) => { setStartH(Number(e.target.value)); setWinSaved(false); }}>
+                    {HOURS.map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+                  </Select>
+                </Field>
+                <Field label="To">
+                  <Select value={String(endH)} onChange={(e) => { setEndH(Number(e.target.value)); setWinSaved(false); }}>
+                    {HOURS.map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+                  </Select>
+                </Field>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {DAY_LABELS.map((d, i) => {
+                  const dn = i + 1;
+                  const on = days.includes(dn);
+                  return (
+                    <button key={dn} type="button"
+                      onClick={() => { setDays((ds) => on ? ds.filter((x) => x !== dn) : [...ds, dn].sort()); setWinSaved(false); }}
+                      className={on ? "rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-fg" : "rounded-md border border-border-strong px-2.5 py-1 text-xs text-muted"}>
+                      {d}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          <div className="flex items-center gap-3">
+            <Button size="sm" variant="secondary" disabled={busy} onClick={async () => {
+              await control({ timezone: tz, businessHours: winOn ? { days, start: `${String(startH).padStart(2, "0")}:00`, end: `${String(endH).padStart(2, "0")}:00` } : null });
+              setWinSaved(true);
+            }}>Save sending window</Button>
+            {winSaved && <span className="text-xs text-success">Saved.</span>}
           </div>
         </div>
 
