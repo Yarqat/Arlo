@@ -3,6 +3,7 @@ import { reserve } from "@/lib/budget";
 import { resolveConfig } from "./secrets";
 import { AiTask, ProviderConnection } from "@prisma/client";
 import { log } from "@/lib/log";
+import { recordProviderAlert, isProviderCreditError } from "@/lib/provider-alert";
 
 export class NoModelAssignedError extends Error {
   constructor(task: string) {
@@ -271,7 +272,13 @@ export async function runAiTask(input: RunTaskInput): Promise<AiResult> {
     return { ...out, model: assignment.modelId, connectionId: conn.id };
   } catch (e) {
     await r.release();
-    log.error("ai task failed", { task: input.task, err: (e as Error).message });
+    const msg = (e as Error).message;
+    log.error("ai task failed", { task: input.task, err: msg });
+    // Surface provider-side money/auth failures (expired credits, billing, bad
+    // key, rate limit) to the dashboard so the owner knows to act.
+    if (e instanceof ProviderError || isProviderCreditError(msg)) {
+      await recordProviderAlert("AI", `AI provider error: ${msg}`);
+    }
     throw e;
   }
 }

@@ -59,6 +59,16 @@ export async function getPipelineStatus(): Promise<PipelineBlocker[]> {
     });
   }
 
+  const researchUsed = used("RESEARCH");
+  if (settings.dailyResearch > 0 && researchUsed >= settings.dailyResearch) {
+    blockers.push({
+      key: "research-limit",
+      tone: "warning",
+      title: "Daily research limit reached",
+      detail: `Arlo has researched today's ${settings.dailyResearch} leads, so new leads can't be analysed or drafted until it resets. ${resetsAt} Raise the limit in Settings if you need more.`,
+    });
+  }
+
   const spendUsed = spent();
   const spendCap = Number(settings.dailySpendLimit);
   if (spendCap > 0 && spendUsed >= spendCap) {
@@ -80,7 +90,29 @@ export async function getPipelineStatus(): Promise<PipelineBlocker[]> {
     });
   }
 
-  // 3) Active campaigns with no mailbox can research/draft but never send.
+  // 3) Connected-API problems (expired credits, billing, bad key, rate limit)
+  //    recorded by provider-alert.ts. Show the latest per provider so every
+  //    affected API (AI model, mailbox, verifier…) gets its own warning.
+  const since = new Date(Date.now() - 2 * 3600_000);
+  const alerts = await prisma.auditEvent.findMany({
+    where: { action: "provider_alert", createdAt: { gte: since } },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+  const seenProviders = new Set<string>();
+  const label: Record<string, string> = { AI: "AI model", email: "Email sending", verifier: "Email verifier" };
+  for (const a of alerts) {
+    if (seenProviders.has(a.entityId)) continue;
+    seenProviders.add(a.entityId);
+    blockers.push({
+      key: `provider-${a.entityId}`,
+      tone: "danger",
+      title: `${label[a.entityId] ?? a.entityId} — action needed`,
+      detail: `${a.summary} Check Settings → Connections (credits, billing or API key).`,
+    });
+  }
+
+  // 4) Active campaigns with no mailbox can research/draft but never send.
   const noMailbox = await prisma.campaign.count({
     where: { status: "ACTIVE", sendingMailboxId: null },
   });

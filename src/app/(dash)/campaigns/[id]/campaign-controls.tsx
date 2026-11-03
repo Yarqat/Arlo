@@ -3,7 +3,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Field, Select, Textarea } from "@/components/ui/input";
+import { Field, Select, Textarea, Input } from "@/components/ui/input";
 import { Alert } from "@/components/ui/misc";
 import { Switch } from "@/components/ui/interactive";
 
@@ -32,6 +32,7 @@ function hourLabel(h: number) {
 
 export function CampaignControls({
   id, status, mode, sendingMailboxId, followUpSequenceId, mailboxes, sequences, allowUnverified, autoDiscover, offer, subjectVariants, timezone, businessHours,
+  maxNewLeadsPerDay, dailyEmailLimit, hourlyEmailLimit, maxFollowUps, maxPagesPerLead, name, businessType, positiveCriteria, exclusions,
 }: {
   id: string;
   status: string;
@@ -46,6 +47,15 @@ export function CampaignControls({
   subjectVariants: string[];
   timezone: string;
   businessHours: { days?: number[]; start?: string; end?: string } | null;
+  maxNewLeadsPerDay: number | null;
+  dailyEmailLimit: number | null;
+  hourlyEmailLimit: number | null;
+  maxFollowUps: number | null;
+  maxPagesPerLead: number | null;
+  name: string;
+  businessType: string;
+  positiveCriteria: string;
+  exclusions: string;
 }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
@@ -61,6 +71,19 @@ export function CampaignControls({
   const [endH, setEndH] = React.useState(parseInt((businessHours?.end ?? "11:00").split(":")[0], 10));
   const [days, setDays] = React.useState<number[]>(businessHours?.days ?? [1, 2, 3, 4, 5]);
   const [winSaved, setWinSaved] = React.useState(false);
+  // Per-campaign limits (blank string = use the global default / no cap).
+  const n2s = (v: number | null) => (v === null || v === undefined ? "" : String(v));
+  const [limits, setLimits] = React.useState({
+    maxNewLeadsPerDay: n2s(maxNewLeadsPerDay),
+    dailyEmailLimit: n2s(dailyEmailLimit),
+    hourlyEmailLimit: n2s(hourlyEmailLimit),
+    maxFollowUps: n2s(maxFollowUps),
+    maxPagesPerLead: n2s(maxPagesPerLead),
+  });
+  const [limitsSaved, setLimitsSaved] = React.useState(false);
+  // Campaign info / brief
+  const [info, setInfo] = React.useState({ name, businessType, positiveCriteria, exclusions });
+  const [infoSaved, setInfoSaved] = React.useState(false);
 
   async function control(body: Record<string, unknown>) {
     setBusy(true);
@@ -203,6 +226,75 @@ export function CampaignControls({
               setWinSaved(true);
             }}>Save sending window</Button>
             {winSaved && <span className="text-xs text-success">Saved.</span>}
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <div className="mb-1 text-sm font-medium">Limits</div>
+          <p className="mb-3 text-xs text-muted">Caps for this campaign. Leave a box blank to fall back to your global default (Settings → Budgets).</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="New leads / day" hint="How many new leads to discover per day.">
+              <Input type="number" min={0} inputMode="numeric" value={limits.maxNewLeadsPerDay}
+                onChange={(e) => { setLimits({ ...limits, maxNewLeadsPerDay: e.target.value }); setLimitsSaved(false); }} placeholder="20" />
+            </Field>
+            <Field label="Emails / day" hint="Max contacts emailed per day.">
+              <Input type="number" min={0} inputMode="numeric" value={limits.dailyEmailLimit}
+                onChange={(e) => { setLimits({ ...limits, dailyEmailLimit: e.target.value }); setLimitsSaved(false); }} placeholder="global" />
+            </Field>
+            <Field label="Emails / hour" hint="Max contacts emailed per hour.">
+              <Input type="number" min={0} inputMode="numeric" value={limits.hourlyEmailLimit}
+                onChange={(e) => { setLimits({ ...limits, hourlyEmailLimit: e.target.value }); setLimitsSaved(false); }} placeholder="global" />
+            </Field>
+            <Field label="Follow-ups" hint="How many follow-up emails after the first.">
+              <Input type="number" min={0} inputMode="numeric" value={limits.maxFollowUps}
+                onChange={(e) => { setLimits({ ...limits, maxFollowUps: e.target.value }); setLimitsSaved(false); }} placeholder="2" />
+            </Field>
+            <Field label="Pages / lead" hint="How many site pages to read when researching.">
+              <Input type="number" min={1} inputMode="numeric" value={limits.maxPagesPerLead}
+                onChange={(e) => { setLimits({ ...limits, maxPagesPerLead: e.target.value }); setLimitsSaved(false); }} placeholder="5" />
+            </Field>
+          </div>
+          <div className="mt-2 flex items-center gap-3">
+            <Button size="sm" variant="secondary" disabled={busy} onClick={async () => {
+              const toVal = (s: string) => (s.trim() === "" ? null : Math.max(0, parseInt(s, 10) || 0));
+              await control({
+                maxNewLeadsPerDay: toVal(limits.maxNewLeadsPerDay),
+                dailyEmailLimit: toVal(limits.dailyEmailLimit),
+                hourlyEmailLimit: toVal(limits.hourlyEmailLimit),
+                maxFollowUps: toVal(limits.maxFollowUps),
+                maxPagesPerLead: limits.maxPagesPerLead.trim() === "" ? null : Math.max(1, parseInt(limits.maxPagesPerLead, 10) || 1),
+              });
+              setLimitsSaved(true);
+            }}>Save limits</Button>
+            {limitsSaved && <span className="text-xs text-success">Saved.</span>}
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <div className="mb-3 text-sm font-medium">Campaign info</div>
+          <div className="space-y-3">
+            <Field label="Name">
+              <Input value={info.name} onChange={(e) => { setInfo({ ...info, name: e.target.value }); setInfoSaved(false); }} />
+            </Field>
+            <Field label="Business type / who to target">
+              <Textarea rows={2} value={info.businessType} onChange={(e) => { setInfo({ ...info, businessType: e.target.value }); setInfoSaved(false); }} />
+            </Field>
+            <Field label="Positive criteria" hint="What makes a lead a good fit.">
+              <Textarea rows={2} value={info.positiveCriteria} onChange={(e) => { setInfo({ ...info, positiveCriteria: e.target.value }); setInfoSaved(false); }} />
+            </Field>
+            <Field label="Exclusions" hint="What to skip (e.g. churches, non-profits).">
+              <Textarea rows={2} value={info.exclusions} onChange={(e) => { setInfo({ ...info, exclusions: e.target.value }); setInfoSaved(false); }} />
+            </Field>
+          </div>
+          <div className="mt-2 flex items-center gap-3">
+            <Button size="sm" variant="secondary" disabled={busy} onClick={async () => {
+              setBusy(true);
+              await post({ action: "update", id, name: info.name, businessType: info.businessType, positiveCriteria: info.positiveCriteria, exclusions: info.exclusions });
+              setBusy(false);
+              setInfoSaved(true);
+              router.refresh();
+            }}>Save info</Button>
+            {infoSaved && <span className="text-xs text-success">Saved.</span>}
           </div>
         </div>
 

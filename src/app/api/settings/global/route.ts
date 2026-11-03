@@ -32,6 +32,8 @@ const schema = z.object({
   hotReplyNotify: z.boolean().optional(),
   notifyEmail: z.string().max(200).optional(),
   enrichEmails: z.boolean().optional(),
+  enrichSocial: z.boolean().optional(),
+  emailAllContacts: z.boolean().optional(),
   trackClicks: z.boolean().optional(),
   bookingUrl: z.string().max(500).optional(),
   // Plaintext in; stored encrypted. "" clears it.

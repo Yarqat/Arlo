@@ -41,6 +41,12 @@ const schema = z.discriminatedUnion("action", [
     autoDiscover: z.boolean().optional(),
     offer: z.string().max(2000).optional(),
     subjectVariants: z.array(z.string().max(200)).max(10).optional(),
+    // Per-campaign limits. null = fall back to the global setting.
+    maxNewLeadsPerDay: z.coerce.number().int().min(0).max(100000).nullable().optional(),
+    dailyEmailLimit: z.coerce.number().int().min(0).max(100000).nullable().optional(),
+    hourlyEmailLimit: z.coerce.number().int().min(0).max(100000).nullable().optional(),
+    maxFollowUps: z.coerce.number().int().min(0).max(20).nullable().optional(),
+    maxPagesPerLead: z.coerce.number().int().min(1).max(50).nullable().optional(),
     timezone: z.string().max(64).optional(),
     businessHours: z.object({
       days: z.array(z.coerce.number().int().min(1).max(7)).optional(),
@@ -103,6 +109,10 @@ export const POST = ownerRoute(async (req) => {
         maxNewLeadsPerDay: b.maxNewLeadsPerDay ?? 20,
         allowCatchAll: b.allowCatchAll ?? false,
         allowUnknown: b.allowUnknown ?? false,
+        // Default new campaigns to allow unverified contacts — there is no email
+        // verifier connected, so requiring a passing verification would stop every
+        // send. The owner can turn this off per campaign once a verifier is set up.
+        allowUnverified: true,
         timezone: b.timezone ?? "Asia/Karachi",
       },
     });
@@ -129,6 +139,11 @@ export const POST = ownerRoute(async (req) => {
     if (b.subjectVariants !== undefined) data.subjectVariants = b.subjectVariants.map((s) => s.trim()).filter(Boolean);
     if (b.timezone !== undefined) data.timezone = b.timezone;
     if (b.businessHours !== undefined) data.businessHours = b.businessHours === null ? Prisma.DbNull : b.businessHours;
+    if (b.maxNewLeadsPerDay !== undefined) data.maxNewLeadsPerDay = b.maxNewLeadsPerDay;
+    if (b.dailyEmailLimit !== undefined) data.dailyEmailLimit = b.dailyEmailLimit;
+    if (b.hourlyEmailLimit !== undefined) data.hourlyEmailLimit = b.hourlyEmailLimit;
+    if (b.maxFollowUps !== undefined) data.maxFollowUps = b.maxFollowUps;
+    if (b.maxPagesPerLead !== undefined) data.maxPagesPerLead = b.maxPagesPerLead;
     await prisma.campaign.update({ where: { id: b.id }, data });
     await audit("owner", "campaign_control", "Campaign", b.id, `Updated ${campaign.name}: ${JSON.stringify(data)}`);
     return NextResponse.json({ ok: true });

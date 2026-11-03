@@ -76,6 +76,15 @@ export default async function CampaignDetail({ params }: { params: Promise<{ id:
         subjectVariants={campaign.subjectVariants}
         timezone={campaign.timezone}
         businessHours={campaign.businessHours as { days?: number[]; start?: string; end?: string } | null}
+        maxNewLeadsPerDay={campaign.maxNewLeadsPerDay}
+        dailyEmailLimit={campaign.dailyEmailLimit}
+        hourlyEmailLimit={campaign.hourlyEmailLimit}
+        maxFollowUps={campaign.maxFollowUps}
+        maxPagesPerLead={campaign.maxPagesPerLead}
+        name={campaign.name}
+        businessType={campaign.businessType}
+        positiveCriteria={campaign.positiveCriteria}
+        exclusions={campaign.exclusions}
       />
 
       <div className="grid gap-4 lg:grid-cols-3">

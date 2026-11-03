@@ -24,6 +24,8 @@ export default async function AutomationPage() {
               hotReplyNotify: s.hotReplyNotify,
               notifyEmail: s.notifyEmail,
               enrichEmails: s.enrichEmails,
+              enrichSocial: s.enrichSocial,
+              emailAllContacts: s.emailAllContacts,
               trackClicks: s.trackClicks,
               bookingUrl: s.bookingUrl,
               hasCalcomKey: !!s.calcomApiKeyEnc,

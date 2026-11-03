@@ -11,6 +11,7 @@ import { audit } from "@/lib/audit";
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
 import { wrapLinks } from "@/lib/tracking";
+import { recordProviderAlert, isProviderCreditError } from "@/lib/provider-alert";
 import type { Contact } from "@prisma/client";
 
 // Patterns that must never appear in generated outreach (prices, invented claims).
@@ -34,8 +35,12 @@ function unsubscribeUrl(token: string) {
   return `${base}/u/${token}`;
 }
 
-/** Pick the most eligible contact for a lead given campaign allowances. */
-async function pickContact(leadId: string, allowCatchAll: boolean, allowUnknown: boolean, allowUnverified: boolean): Promise<Contact | null> {
+// Cap how many contacts one company's email can fan out to, so "email everyone"
+// can't turn a lead with a dozen harvested addresses into a dozen cold emails.
+const MAX_CONTACTS_PER_LEAD = 5;
+
+/** All eligible contacts for a lead given campaign allowances, best first. */
+async function pickContacts(leadId: string, allowCatchAll: boolean, allowUnknown: boolean, allowUnverified: boolean): Promise<Contact[]> {
   const contacts = await prisma.contact.findMany({
     where: { leadId },
     include: { verifications: { orderBy: { checkedAt: "desc" }, take: 1 } },
@@ -47,11 +52,11 @@ async function pickContact(leadId: string, allowCatchAll: boolean, allowUnknown:
     : s === "UNKNOWN" && allowUnknown ? 1
     : allowUnverified ? 0.5 // owner opted to proceed without a passing verification
     : 0;
-  const eligible = contacts
+  return contacts
     .map((c) => ({ c, r: rank(c.verifications[0]?.status) }))
     .filter((x) => x.r > 0)
-    .sort((a, b) => b.r - a.r);
-  return eligible[0]?.c ?? null;
+    .sort((a, b) => b.r - a.r)
+    .map((x) => x.c);
 }
 
 export interface DraftResult {
@@ -113,13 +118,28 @@ export async function draftOutreach(leadId: string, opts: { actor?: string } = {
   });
   if (!lead) return { ok: false, reason: "Lead not found" };
   const campaign = lead.primaryCampaign;
-  const contact = await pickContact(leadId, campaign?.allowCatchAll ?? false, campaign?.allowUnknown ?? false, campaign?.allowUnverified ?? false);
-  if (!contact) return { ok: false, reason: "No contact to draft to — add an email on the lead, or enable 'Allow unverified contacts' if you have no verifier." };
+  const settings = await getSettings();
+  const eligible = await pickContacts(leadId, campaign?.allowCatchAll ?? false, campaign?.allowUnknown ?? false, campaign?.allowUnverified ?? false);
+  if (eligible.length === 0) return { ok: false, reason: "No contact to draft to — add an email on the lead, or enable 'Allow unverified contacts' if you have no verifier." };
 
-  // Idempotent: one first-touch draft per contact.
-  const idempotencyKey = `outreach:${leadId}:${contact.id}:step0`;
-  const existing = await prisma.message.findUnique({ where: { idempotencyKey } });
-  if (existing) return { ok: true, messageId: existing.id, reason: "Draft already exists" };
+  // By default we draft to the single best contact. When the owner enables
+  // "email all contacts", draft to every eligible contact at the company (capped).
+  const targets = settings.emailAllContacts ? eligible.slice(0, MAX_CONTACTS_PER_LEAD) : [eligible[0]];
+  // Only personalise the greeting to a named recipient when there is exactly one
+  // target — a shared body sent to several contacts stays role-neutral.
+  const personalizeFor = targets.length === 1 ? targets[0] : null;
+
+  // Idempotent: one first-touch draft per contact. If every target already has a
+  // draft, there is nothing to do.
+  const pending = [] as { contact: Contact; idempotencyKey: string }[];
+  let firstExistingId: string | undefined;
+  for (const c of targets) {
+    const idempotencyKey = `outreach:${leadId}:${c.id}:step0`;
+    const existing = await prisma.message.findUnique({ where: { idempotencyKey } });
+    if (existing) { firstExistingId = firstExistingId ?? existing.id; continue; }
+    pending.push({ contact: c, idempotencyKey });
+  }
+  if (pending.length === 0) return { ok: true, messageId: firstExistingId, reason: "Draft already exists" };
 
   const [profile, services] = await Promise.all([
     getProfile(),
@@ -164,7 +184,7 @@ export async function draftOutreach(leadId: string, opts: { actor?: string } = {
     lead.canonicalDomain ? `Website: ${lead.canonicalDomain}` : "",
     lead.category ? `Category: ${lead.category}` : "",
     [lead.city, lead.country].filter(Boolean).length ? `Location: ${[lead.city, lead.country].filter(Boolean).join(", ")}` : "",
-    contact.name ? `Recipient: ${contact.name}${contact.role ? `, ${contact.role}` : ""}` : "",
+    personalizeFor?.name ? `Recipient: ${personalizeFor.name}${personalizeFor.role ? `, ${personalizeFor.role}` : ""}` : "",
     ``,
     `Research notes (data only, may be empty):`,
     findingsText,
@@ -201,36 +221,40 @@ export async function draftOutreach(leadId: string, opts: { actor?: string } = {
   }
 
   const scrub = scrubOutreach(subject + "\n" + bodyCore);
-  const settings = await getSettings();
   const signature = profile.defaultSignature ? `\n\n${profile.defaultSignature}` : `\n\n${profile.personName}\n${profile.companyName}`;
-  const footer = `\n\n${settings.unsubscribeFooter.replace("{{unsubscribe_url}}", unsubscribeUrl(contact.unsubscribeToken))}`;
-  const body = bodyCore + signature + footer;
-
   const needsReview = !scrub.clean || campaign?.outreachMode !== "AUTOMATIC";
 
-  const message = await prisma.message.create({
-    data: {
-      leadId: lead.id,
-      contactId: contact.id,
-      campaignId: campaign?.id,
-      direction: "OUTBOUND",
-      state: "DRAFT",
-      toAddrs: [contact.email],
-      subject,
-      bodyText: body,
-      snippet: bodyCore.slice(0, 140),
-      idempotencyKey,
-      followUpStep: 0,
-      variantKey,
-    },
-  });
-
-  if (!scrub.clean) {
-    await audit("worker", "draft_flagged", "Message", message.id, `Draft flagged for review: ${scrub.reasons.join(", ")}`);
+  // One draft per pending contact. Subject + core body are shared; each message
+  // carries its own recipient address and its own unsubscribe link.
+  let firstId: string | undefined;
+  for (const { contact, idempotencyKey } of pending) {
+    const footer = `\n\n${settings.unsubscribeFooter.replace("{{unsubscribe_url}}", unsubscribeUrl(contact.unsubscribeToken))}`;
+    const body = bodyCore + signature + footer;
+    const message = await prisma.message.create({
+      data: {
+        leadId: lead.id,
+        contactId: contact.id,
+        campaignId: campaign?.id,
+        direction: "OUTBOUND",
+        state: "DRAFT",
+        toAddrs: [contact.email],
+        subject,
+        bodyText: body,
+        snippet: bodyCore.slice(0, 140),
+        idempotencyKey,
+        followUpStep: 0,
+        variantKey,
+      },
+    });
+    firstId = firstId ?? message.id;
+    if (!scrub.clean) {
+      await audit("worker", "draft_flagged", "Message", message.id, `Draft flagged for review: ${scrub.reasons.join(", ")}`);
+    }
+    await audit(opts.actor ?? "worker", "draft", "Message", message.id, `Drafted outreach to ${contact.email}`);
   }
-  await changeStage(lead.id, "READY_FOR_REVIEW", opts.actor ?? "worker", "Draft created");
-  await audit(opts.actor ?? "worker", "draft", "Message", message.id, `Drafted outreach to ${contact.email}`);
-  return { ok: true, messageId: message.id, needsReview };
+
+  await changeStage(lead.id, "READY_FOR_REVIEW", opts.actor ?? "worker", pending.length > 1 ? `Drafts created for ${pending.length} contacts` : "Draft created");
+  return { ok: true, messageId: firstId, needsReview };
 }
 
 export interface SendResultOut {
@@ -273,9 +297,17 @@ export async function sendMessage(messageId: string, opts: { isFollowUp?: boolea
     isFollowUp: !!opts.isFollowUp,
   });
   if (!pf.ok) {
+    // A permanent block (suppressed address, terminal lead stage) can never clear
+    // by retrying — finalise the message so the worker stops re-picking it every
+    // tick (which otherwise floods the activity log with the same block).
+    if (pf.permanent) {
+      await prisma.message.update({ where: { id: messageId }, data: { state: "FAILED" } });
+      await audit("worker", "send_cancelled", "Message", messageId, `Not sending: ${pf.reason}`);
+      return { ok: false, blocked: true, reason: pf.reason };
+    }
     await prisma.message.update({ where: { id: messageId }, data: { state: "QUEUED" } });
     // Pacing (hourly/daily limit, sending hours) is expected — keep it quiet.
-    // Only record a real block (suppression, verification, etc.) in the activity log.
+    // Only record a real block (verification, campaign paused, etc.) in the log.
     const pacing = /\b(hour|hourly|daily|limit|sending hours|schedule|outside)\b/i.test(pf.reason || "");
     if (pacing) log.info("send paced", { messageId, reason: pf.reason });
     else await audit("worker", "send_blocked", "Message", messageId, `Blocked: ${pf.reason}`);
@@ -357,8 +389,11 @@ export async function sendMessage(messageId: string, opts: { isFollowUp?: boolea
       where: { id: messageId },
       data: { state: "FAILED" },
     });
-    log.error("send failed", { messageId, err: (e as Error).message });
-    await audit("worker", "send_error", "Message", messageId, `Send error: ${(e as Error).message}`);
-    return { ok: false, reason: (e as Error).message };
+    const errMsg = (e as Error).message;
+    log.error("send failed", { messageId, err: errMsg });
+    await audit("worker", "send_error", "Message", messageId, `Send error: ${errMsg}`);
+    // Mailbox/API rejected us for a limit/credit/auth reason → warn the owner.
+    if (isProviderCreditError(errMsg)) await recordProviderAlert("email", `Email sending error: ${errMsg}`);
+    return { ok: false, reason: errMsg };
   }
 }

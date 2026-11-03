@@ -8,6 +8,8 @@ type A = {
   hotReplyNotify: boolean;
   notifyEmail: string;
   enrichEmails: boolean;
+  enrichSocial: boolean;
+  emailAllContacts: boolean;
   trackClicks: boolean;
   bookingUrl: string;
   hasCalcomKey: boolean;
@@ -38,6 +40,8 @@ export function AutomationForm({ initial }: { initial: A }) {
           hotReplyNotify: a.hotReplyNotify,
           notifyEmail: a.notifyEmail,
           enrichEmails: a.enrichEmails,
+          enrichSocial: a.enrichSocial,
+          emailAllContacts: a.emailAllContacts,
           trackClicks: a.trackClicks,
           bookingUrl: a.bookingUrl,
         };
@@ -62,6 +66,20 @@ export function AutomationForm({ initial }: { initial: A }) {
         hint="During research, Arlo scrapes mailto: links and on-page addresses so leads without a contact become reachable. Free — no external service."
         checked={a.enrichEmails}
         onChange={(v) => setA({ ...a, enrichEmails: v })}
+      />
+
+      <Row
+        label="Also check social media profiles"
+        hint="Follow Facebook, Instagram, LinkedIn and other profiles linked from the site to harvest contact emails published there. Only runs when website enrichment is on."
+        checked={a.enrichSocial}
+        onChange={(v) => setA({ ...a, enrichSocial: v })}
+      />
+
+      <Row
+        label="Email every contact at a company"
+        hint="When a company has more than one eligible email, draft to all of them (up to 5) instead of just the best one. Off by default — leave off to send a single email per company."
+        checked={a.emailAllContacts}
+        onChange={(v) => setA({ ...a, emailAllContacts: v })}
       />
 
       <Row

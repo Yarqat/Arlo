@@ -1,13 +1,16 @@
 import { prisma } from "@/lib/db";
 import { getSettings } from "@/lib/settings";
 import { isSuppressed } from "@/lib/suppression";
-import { hourInTz, weekdayInTz, dayKey } from "@/lib/time";
+import { hourInTz, weekdayInTz, dayKey, zonedWallToUtc } from "@/lib/time";
 import { Mailbox, Campaign, Contact, Lead } from "@prisma/client";
 
 export interface PreflightResult {
   ok: boolean;
   reason?: string;
   nextEligibleAt?: Date;
+  // A permanent block can never clear by retrying (suppression, terminal stage),
+  // so the message should be finalised rather than put back on the queue.
+  permanent?: boolean;
 }
 
 const BLOCKED_STAGES = new Set(["SUPPRESSED", "LOST", "NOT_INTERESTED", "WON", "MEETING_BOOKED"]);
@@ -29,10 +32,10 @@ export async function preflight(ctx: Ctx): Promise<PreflightResult> {
   if (settings.emergencyPause) return { ok: false, reason: "Emergency pause is active" };
 
   // Suppression / unsubscribe / hard bounce (one list).
-  if (await isSuppressed(ctx.contact.email)) return { ok: false, reason: "Address is suppressed (bounce/unsubscribe/manual)" };
+  if (await isSuppressed(ctx.contact.email)) return { ok: false, reason: "Address is suppressed (bounce/unsubscribe/manual)", permanent: true };
 
   // Lead stage.
-  if (BLOCKED_STAGES.has(ctx.lead.stage)) return { ok: false, reason: `Lead stage is ${ctx.lead.stage}` };
+  if (BLOCKED_STAGES.has(ctx.lead.stage)) return { ok: false, reason: `Lead stage is ${ctx.lead.stage}`, permanent: true };
 
   // A reply pauses everything — even before AI classification.
   const inboundSinceContact = await prisma.message.count({
@@ -93,6 +96,32 @@ export async function preflight(ctx: Ctx): Promise<PreflightResult> {
   if (sentLastHour >= ctx.mailbox.hourlyLimit) {
     const next = new Date(Date.now() + 3600_000);
     return { ok: false, reason: "Hourly sending limit reached", nextEligibleAt: next };
+  }
+
+  // Per-campaign sending caps (optional; null = no campaign-level cap, fall back
+  // to the mailbox/global limits above). These let the owner throttle a single
+  // campaign independently of the global budget.
+  const tzForDay = ctx.campaign?.timezone || settings.timezone;
+  const sentState = { in: ["ACCEPTED", "SENT", "DELIVERED"] as ("ACCEPTED" | "SENT" | "DELIVERED")[] };
+  if (ctx.campaign?.hourlyEmailLimit != null) {
+    const n = await prisma.message.count({
+      where: { campaignId: ctx.campaign.id, direction: "OUTBOUND", sentAt: { gte: oneHourAgo }, state: sentState },
+    });
+    if (n >= ctx.campaign.hourlyEmailLimit) {
+      return { ok: false, reason: "Campaign hourly limit reached", nextEligibleAt: new Date(Date.now() + 3600_000) };
+    }
+  }
+  if (ctx.campaign?.dailyEmailLimit != null) {
+    const [y, mo, d] = dayKey(tzForDay).split("-").map((x) => parseInt(x, 10));
+    const startOfDay = zonedWallToUtc(y, mo, d, 0, 0, tzForDay);
+    const n = await prisma.message.count({
+      where: { campaignId: ctx.campaign.id, direction: "OUTBOUND", sentAt: { gte: startOfDay }, state: sentState },
+    });
+    if (n >= ctx.campaign.dailyEmailLimit) {
+      // Next eligible at the start of tomorrow (campaign timezone).
+      const next = new Date(startOfDay.getTime() + 24 * 3600_000);
+      return { ok: false, reason: "Campaign daily limit reached", nextEligibleAt: next };
+    }
   }
 
   return { ok: true };

@@ -865,6 +865,8 @@ model GlobalSettings {
   hotReplyNotify   Boolean @default(true)  // email the owner when a hot reply arrives
   notifyEmail      String  @default("")    // where owner alerts go (blank = owner login email)
   enrichEmails     Boolean @default(true)  // scrape contact emails from prospect sites during research
+  enrichSocial     Boolean @default(true)  // also follow linked social profiles (Facebook/Instagram/LinkedIn/etc.) to harvest emails
+  emailAllContacts Boolean @default(false) // when a company has several eligible contacts, draft to all of them (not just the best one)
   trackClicks      Boolean @default(false) // wrap links so clicks are logged (no open pixels)
 
   // Scheduling — the OWNER connects their OWN Cal.com / Google Calendar. We never

@@ -31,6 +31,35 @@ function emailType(email: string): "ROLE" | "UNKNOWN" {
   return /^(info|sales|contact|hello|hi|admin|support|enquiries|inquiries|office|team|mail|booking|bookings)$/i.test(local) ? "ROLE" : "UNKNOWN";
 }
 
+// Social profiles a business links to from its site. We follow these to harvest
+// contact emails (Facebook "About" pages, Instagram business profiles, LinkedIn,
+// etc. often publish a contact address even when the website doesn't).
+const SOCIAL_HOST = /^(?:www\.|m\.|business\.)?(facebook\.com|fb\.com|instagram\.com|linkedin\.com|twitter\.com|x\.com|youtube\.com|t\.me|wa\.me|linktr\.ee)$/i;
+// Links that are actions/widgets, not a profile — never worth fetching.
+const SOCIAL_JUNK = /(sharer|share\.php|\/intent\/|\/plugins\/|dialog\/|\/tr\?|login|signup|\/ads\/|\/policy)/i;
+
+/** Pull the business's own social-profile URLs out of page HTML. */
+function extractSocialLinks(html: string): string[] {
+  const urls = new Map<string, string>(); // host|path -> url (dedupe)
+  const re = /href=["']([^"']+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    let u: URL;
+    try {
+      u = new URL(m[1]);
+    } catch {
+      continue;
+    }
+    if ((u.protocol !== "http:" && u.protocol !== "https:") || !SOCIAL_HOST.test(u.hostname)) continue;
+    if (SOCIAL_JUNK.test(u.href)) continue;
+    const path = u.pathname.replace(/\/+$/, "");
+    if (!path || path === "") continue; // bare homepage link, no profile
+    const key = `${u.hostname.toLowerCase()}|${path.toLowerCase()}`;
+    if (!urls.has(key)) urls.set(key, u.toString());
+  }
+  return [...urls.values()];
+}
+
 function htmlToText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -113,18 +142,43 @@ export async function researchLead(leadId: string): Promise<{ ok: boolean; reaso
     //     emailable. Only runs when enabled and respects the per-lead unique email.
     if (settings.enrichEmails) {
       try {
-        const emails = extractEmails(rawHtml).slice(0, 5);
-        for (const email of emails) {
+        // Emails straight off the website.
+        const found: { email: string; source: string; sourceUrl: string }[] = [];
+        for (const email of extractEmails(rawHtml).slice(0, 5)) {
+          found.push({ email, source: "site", sourceUrl: pages[0]?.url ?? "" });
+        }
+
+        // Follow linked social profiles (opt-in) and harvest emails there too.
+        if (settings.enrichSocial) {
+          const socialLinks = extractSocialLinks(rawHtml).slice(0, 4);
+          for (const link of socialLinks) {
+            try {
+              const sp = await safeFetch(link, { maxBytes: 1_200_000, timeoutMs: 12000 });
+              if (sp.status < 400) {
+                for (const email of extractEmails(sp.body).slice(0, 3)) {
+                  found.push({ email, source: "social", sourceUrl: link });
+                }
+              }
+            } catch (e) {
+              log.warn("social fetch failed", { leadId, link, err: (e as Error).message });
+            }
+          }
+        }
+
+        // Dedupe by address (first source wins) and cap how many we store per lead.
+        const seen = new Set<string>();
+        const unique = found.filter((f) => (seen.has(f.email) ? false : (seen.add(f.email), true))).slice(0, 8);
+        for (const f of unique) {
           await prisma.contact.upsert({
-            where: { leadId_email: { leadId, email } },
-            create: { leadId, email, emailType: emailType(email), source: "site", sourceUrl: pages[0]?.url ?? "", isPrimary: false },
+            where: { leadId_email: { leadId, email: f.email } },
+            create: { leadId, email: f.email, emailType: emailType(f.email), source: f.source, sourceUrl: f.sourceUrl, isPrimary: false },
             update: {},
           });
         }
-        if (emails.length) {
+        if (unique.length) {
           const primary = await prisma.contact.findFirst({ where: { leadId, isPrimary: true } });
-          if (!primary) await prisma.contact.updateMany({ where: { leadId, email: emails[0] }, data: { isPrimary: true } });
-          log.info("enriched emails", { leadId, found: emails.length });
+          if (!primary) await prisma.contact.updateMany({ where: { leadId, email: unique[0].email }, data: { isPrimary: true } });
+          log.info("enriched emails", { leadId, found: unique.length, social: unique.filter((f) => f.source === "social").length });
         }
       } catch (e) {
         log.warn("email enrichment failed", { leadId, err: (e as Error).message });

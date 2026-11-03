@@ -44,6 +44,12 @@ export async function suppress(input: {
       },
       data: { status: "CANCELLED", blockedReason: `suppressed:${input.reason}` },
     });
+    // Also finalise any outbound message already drafted/queued to this address,
+    // so the worker never keeps retrying (and re-logging) a send that can't go out.
+    await prisma.message.updateMany({
+      where: { contactId: { in: contactIds }, direction: "OUTBOUND", state: { in: ["DRAFT", "QUEUED"] } },
+      data: { state: "FAILED" },
+    });
   }
 
   await audit("system", "suppress", "Suppression", email, `Suppressed ${email} (${input.reason})`, {

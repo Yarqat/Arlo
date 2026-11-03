@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { env } from "@/lib/env";
 import { encryptJson, decryptJson } from "@/lib/crypto";
 import { resolveConfig } from "./secrets";
+import { recordProviderAlert } from "@/lib/provider-alert";
 import { ProviderConnection, VerificationStatus } from "@prisma/client";
 
 export interface VerifyOutcome {
@@ -164,7 +165,9 @@ async function submitEmailAwesome(
   // leaving the contact stuck on "pending" forever.
   const subStatus = String(json?.status ?? json?.validation?.status ?? "").toUpperCase();
   if (subStatus.includes("BILLING")) {
-    throw new Error("Email Awesome returned PENDING_BILLING — your Email Awesome account needs credits or a payment method before it will verify. Add billing there, or switch to ZeroBounce / NeverBounce in Settings → Email verifier.");
+    const m = "Email Awesome returned PENDING_BILLING — your Email Awesome account needs credits or a payment method before it will verify. Add billing there, or switch to ZeroBounce / NeverBounce in Settings → Email verifier.";
+    await recordProviderAlert("verifier", m);
+    throw new Error(m);
   }
   if (subStatus.startsWith("REJECT") || subStatus === "FAILED" || subStatus === "FAILED EXPIRED") {
     throw new Error(`Email Awesome rejected the request (${subStatus}).`);
