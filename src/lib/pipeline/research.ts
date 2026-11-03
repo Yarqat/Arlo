@@ -93,6 +93,16 @@ const RISKY = /\b(slow|load time|revenue|ranking|rank|seo|traffic|secure|vulnera
 export async function researchLead(leadId: string): Promise<{ ok: boolean; reason?: string; findings?: number }> {
   const lead = await prisma.lead.findUnique({ where: { id: leadId }, include: { primaryCampaign: true } });
   if (!lead) return { ok: false, reason: "Lead not found" };
+
+  // Idempotency guard: never re-research a lead we've already acted on. If it
+  // has any outbound message, or has moved past review, it's done — return
+  // cheaply. Without this, duplicate/queued research jobs re-research (and
+  // re-charge AI/research budget for) leads that were already contacted.
+  const DONE_STAGES = ["CONTACTED", "REPLIED", "INTERESTED", "MEETING_REQUESTED", "MEETING_BOOKED", "PROPOSAL_NEEDED", "WON", "LOST", "NOT_INTERESTED", "SUPPRESSED"];
+  if (DONE_STAGES.includes(lead.stage) || (await prisma.message.count({ where: { leadId, direction: "OUTBOUND" } })) > 0) {
+    return { ok: true, reason: "Already contacted — research skipped" };
+  }
+
   if (!lead.website) {
     await prisma.lead.update({ where: { id: leadId }, data: { qualification: "NEEDS_REVIEW", matchExplanation: "No website to research." } });
     return { ok: false, reason: "No website" };
