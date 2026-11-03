@@ -5,13 +5,21 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Field } from "@/components/ui/input";
 import { Alert } from "@/components/ui/misc";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Target, Briefcase } from "lucide-react";
 
-const EXAMPLES = [
+// Example briefs differ by mode so the prompt box nudges the user the right way.
+const SALES_EXAMPLES = [
   "Find independent churches in the UK with outdated websites and published business emails.",
   "Find plumbing companies in Dubai with poor mobile websites.",
   "Find small law firms in Manchester that could benefit from a redesign or an enquiry form.",
 ];
+const JOB_EXAMPLES = [
+  "Find startups in London hiring React developers.",
+  "Find SaaS companies in the US with open product-designer roles.",
+  "Find agencies in Dubai hiring a full-stack engineer.",
+];
+
+type Mode = "SALES" | "JOB_SEARCH";
 
 type Brief = {
   name: string;
@@ -43,6 +51,7 @@ async function post(body: unknown) {
 
 export function BriefEditor() {
   const router = useRouter();
+  const [mode, setMode] = React.useState<Mode>("SALES");
   const [text, setText] = React.useState("");
   const [brief, setBrief] = React.useState<Brief | null>(null);
   // Comma-separated fields are edited as raw text so commas/spaces survive
@@ -53,6 +62,15 @@ export function BriefEditor() {
   const [note, setNote] = React.useState("");
   const [cvName, setCvName] = React.useState("");
   const [cvBusy, setCvBusy] = React.useState(false);
+
+  const examples = mode === "JOB_SEARCH" ? JOB_EXAMPLES : SALES_EXAMPLES;
+
+  // Switching mode before a brief exists just re-seeds the example prompt. Once a
+  // brief is parsed, mode is reflected into it so the job fields appear/hide.
+  function chooseMode(m: Mode) {
+    setMode(m);
+    setBrief((b) => (b ? { ...b, kind: m } : b));
+  }
 
   async function uploadCv(file: File) {
     setCvBusy(true);
@@ -72,7 +90,7 @@ export function BriefEditor() {
     const r = await post({ action: "parse", text });
     setParsing(false);
     if (r.brief) {
-      const b = { ...EMPTY, ...r.brief };
+      const b = { ...EMPTY, ...r.brief, kind: mode };
       setBrief(b);
       setRaw({
         countries: (b.countries ?? []).join(", "),
@@ -91,6 +109,7 @@ export function BriefEditor() {
     setCreating(true);
     const payload = {
       ...brief,
+      kind: mode,
       countries: toArr(raw.countries ?? ""),
       cities: toArr(raw.cities ?? ""),
       servicesOffered: toArr(raw.servicesOffered ?? ""),
@@ -108,15 +127,45 @@ export function BriefEditor() {
 
   return (
     <div className="space-y-4">
+      {/* Step 1 — pick what this campaign does, before anything else. */}
       <Card>
         <CardHeader>
-          <CardTitle>Describe your ideal leads</CardTitle>
-          <CardDescription>Plain English is fine — mention the business type, places, and what makes a good fit.</CardDescription>
+          <CardTitle>What should this campaign do?</CardTitle>
+          <CardDescription>Pick a mode to start. You can only choose one per campaign.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ModeCard
+              active={mode === "SALES"}
+              onClick={() => chooseMode("SALES")}
+              icon={<Target className="size-5" />}
+              title="Leads hunt mode"
+              desc="Find businesses that fit your offer and pitch them your services."
+            />
+            <ModeCard
+              active={mode === "JOB_SEARCH"}
+              onClick={() => chooseMode("JOB_SEARCH")}
+              icon={<Briefcase className="size-5" />}
+              title="Job-search mode"
+              desc="Find companies hiring for a role and pitch you as the candidate, CV attached."
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{mode === "JOB_SEARCH" ? "Describe the companies to target" : "Describe your ideal leads"}</CardTitle>
+          <CardDescription>
+            {mode === "JOB_SEARCH"
+              ? "Plain English is fine — mention the kind of company, places, and the role they're hiring for."
+              : "Plain English is fine — mention the business type, places, and what makes a good fit."}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={EXAMPLES[0]} />
+          <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={examples[0]} />
           <div className="flex flex-wrap gap-2">
-            {EXAMPLES.map((ex) => (
+            {examples.map((ex) => (
               <button key={ex} onClick={() => setText(ex)} className="rounded-full border border-border-strong px-3 py-1 text-xs text-muted hover:bg-surface-2">
                 {ex.slice(0, 48)}…
               </button>
@@ -134,16 +183,9 @@ export function BriefEditor() {
         <Card>
           <CardHeader><CardTitle>Campaign brief</CardTitle><CardDescription>Everything is editable.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input
-                type="checkbox"
-                checked={brief.kind === "JOB_SEARCH"}
-                onChange={(e) => setBrief((b) => (b ? { ...b, kind: e.target.checked ? "JOB_SEARCH" : "SALES" } : b))}
-              />
-              Job-search mode — pitch a candidate to companies hiring for a role
-            </label>
-            {brief.kind === "JOB_SEARCH" && (
+            {mode === "JOB_SEARCH" && (
               <div className="grid gap-4 rounded-lg border border-border bg-surface-2 p-3 sm:grid-cols-2">
+                <div className="sm:col-span-2 text-sm font-medium text-foreground">Job-search details</div>
                 <Field label="Target role"><Input value={brief.targetRole} onChange={setStr("targetRole")} placeholder="e.g. Senior React Developer" /></Field>
                 <Field label="Only postings newer than (days, optional)">
                   <Input type="number" value={brief.jobPostMaxAgeDays ?? ""} onChange={(e) => setBrief((b) => (b ? { ...b, jobPostMaxAgeDays: e.target.value ? Number(e.target.value) : null } : b))} />
@@ -188,5 +230,24 @@ export function BriefEditor() {
         </Card>
       )}
     </div>
+  );
+}
+
+function ModeCard({ active, onClick, icon, title, desc }: { active: boolean; onClick: () => void; icon: React.ReactNode; title: string; desc: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex items-start gap-3 rounded-lg border p-4 text-left transition ${
+        active ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border-strong hover:bg-surface-2"
+      }`}
+    >
+      <span className={`mt-0.5 ${active ? "text-primary" : "text-muted"}`}>{icon}</span>
+      <span>
+        <span className="block text-sm font-medium text-foreground">{title}</span>
+        <span className="mt-0.5 block text-xs text-muted">{desc}</span>
+      </span>
+    </button>
   );
 }

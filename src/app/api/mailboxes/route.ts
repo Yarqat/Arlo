@@ -27,7 +27,9 @@ const schema = z.discriminatedUnion("action", [
     dailyLimit: z.coerce.number().int().min(0).default(50),
     hourlyLimit: z.coerce.number().int().min(0).default(15),
     smtp: cfg,
-    imap: cfg,
+    // IMAP is optional: a send-only mailbox is allowed, but then Arlo cannot
+    // monitor replies (no reply classification, follow-up auto-pause or inbox).
+    imap: cfg.nullable().optional(),
   }),
   z.object({ action: z.literal("test"), id: z.string() }),
   z.object({ action: z.literal("delete"), id: z.string() }),
@@ -45,17 +47,19 @@ export const POST = ownerRoute(async (req) => {
     const mb = await prisma.mailbox.findUniqueOrThrow({ where: { id: b.id } });
     const [smtp, imap] = [smtpOf(mb), imapOf(mb)];
     const smtpRes = smtp ? await testSmtp(smtp) : { ok: false, error: "No SMTP config" };
-    const imapRes = imap ? await testImap(imap) : { ok: false, error: "No IMAP config" };
+    // No IMAP configured is a valid (send-only) state, not a failure.
+    const imapRes = imap ? await testImap(imap) : { ok: true, error: "not configured" };
     const ok = smtpRes.ok && imapRes.ok;
+    const imapLabel = !imap ? "send-only" : imapRes.ok ? "ok" : imapRes.error;
     await prisma.mailbox.update({
       where: { id: b.id },
       data: {
         status: ok ? "CONNECTED" : "ERROR",
         lastTestedAt: new Date(),
-        lastError: ok ? "" : `SMTP: ${smtpRes.ok ? "ok" : smtpRes.error}; IMAP: ${imapRes.ok ? "ok" : imapRes.error}`,
+        lastError: ok ? "" : `SMTP: ${smtpRes.ok ? "ok" : smtpRes.error}; IMAP: ${imapLabel}`,
       },
     });
-    return NextResponse.json({ ok, smtp: smtpRes, imap: imapRes });
+    return NextResponse.json({ ok, smtp: smtpRes, imap: { ...imapRes, configured: !!imap } });
   }
 
   // save
@@ -63,9 +67,21 @@ export const POST = ownerRoute(async (req) => {
   const prevSmtp = existing ? smtpOf(existing) : null;
   const prevImap = existing ? imapOf(existing) : null;
   const smtpFull = { ...b.smtp, pass: b.smtp.pass || prevSmtp?.pass || "" };
-  const imapFull = { ...b.imap, pass: b.imap.pass || prevImap?.pass || "" };
-  if (!smtpFull.pass || !imapFull.pass) {
-    return NextResponse.json({ error: "SMTP and IMAP passwords are required." }, { status: 400 });
+  if (!smtpFull.pass) {
+    return NextResponse.json({ error: "An SMTP password is required to send email." }, { status: 400 });
+  }
+
+  // IMAP is optional. When omitted (null), the mailbox is send-only and we clear
+  // any stored IMAP config. When provided, its password is required.
+  let imapEnc: string | null = existing?.imapConfigEnc ?? null;
+  if (b.imap === null) {
+    imapEnc = null;
+  } else if (b.imap) {
+    const imapFull = { ...b.imap, pass: b.imap.pass || prevImap?.pass || "" };
+    if (!imapFull.pass) {
+      return NextResponse.json({ error: "An IMAP password is required, or turn off reply monitoring to save a send-only mailbox." }, { status: 400 });
+    }
+    imapEnc = encryptJson(imapFull);
   }
 
   const data = {
@@ -76,7 +92,7 @@ export const POST = ownerRoute(async (req) => {
     dailyLimit: b.dailyLimit,
     hourlyLimit: b.hourlyLimit,
     smtpConfigEnc: encryptJson(smtpFull),
-    imapConfigEnc: encryptJson(imapFull),
+    imapConfigEnc: imapEnc,
   };
 
   const mb = b.id

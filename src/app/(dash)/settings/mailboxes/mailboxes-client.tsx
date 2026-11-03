@@ -44,7 +44,7 @@ export function MailboxesClient({ mailboxes }: { mailboxes: MB[] }) {
       </div>
 
       {mailboxes.length === 0 ? (
-        <EmptyState icon={<Mails />} title="No mailboxes yet" description="Add one sending identity with its SMTP (send) and IMAP (receive) settings to start." action={<Button onClick={() => setEditing("new")}>Add mailbox</Button>} />
+        <EmptyState icon={<Mails />} title="No mailboxes yet" description="Add a sending identity. Pick Gmail or Microsoft to auto-fill the servers — add IMAP so Arlo can read replies, or save it send-only." action={<Button onClick={() => setEditing("new")}>Add mailbox</Button>} />
       ) : (
         mailboxes.map((mb) => (
           <Card key={mb.id}>
@@ -57,8 +57,9 @@ export function MailboxesClient({ mailboxes }: { mailboxes: MB[] }) {
                   </div>
                   <p className="text-sm text-muted">{mb.email}</p>
                   <p className="mt-1 text-xs text-muted-2">
-                    SMTP {mb.smtp?.host}:{mb.smtp?.port} · IMAP {mb.imap?.host}:{mb.imap?.port} · {mb.dailyLimit}/day, {mb.hourlyLimit}/hr
+                    SMTP {mb.smtp?.host}:{mb.smtp?.port} · {mb.imap ? `IMAP ${mb.imap.host}:${mb.imap.port}` : "send-only (no reply monitoring)"} · {mb.dailyLimit}/day, {mb.hourlyLimit}/hr
                   </p>
+                  {!mb.imap && <Badge tone="neutral">send-only</Badge>}
                   <p className="text-xs text-muted-2">Last sync: {fmtDateTime(mb.lastSyncAt)} · Last test: {fmtDateTime(mb.lastTestedAt)}</p>
                   {mb.lastError && <p className="mt-1 text-xs text-danger">{mb.lastError}</p>}
                   {testMsg[mb.id] && <p className="mt-1 text-xs text-info">{testMsg[mb.id]}</p>}
@@ -87,6 +88,23 @@ export function MailboxesClient({ mailboxes }: { mailboxes: MB[] }) {
   );
 }
 
+// One-click presets so users don't have to hunt for host/port values. Gmail and
+// Microsoft need an "app password" (normal password won't work with 2FA on).
+const PRESETS: Record<string, { label: string; smtpHost: string; smtpPort: number; smtpSecure: boolean; imapHost: string; imapPort: number; imapSecure: boolean; note?: string }> = {
+  gmail: {
+    label: "Gmail / Google Workspace",
+    smtpHost: "smtp.gmail.com", smtpPort: 465, smtpSecure: true,
+    imapHost: "imap.gmail.com", imapPort: 993, imapSecure: true,
+    note: "Turn on 2-step verification, then create an App Password (Google Account → Security → App passwords) and paste it as the password below — your normal Gmail password won't work. Also enable IMAP in Gmail → Settings → Forwarding and POP/IMAP.",
+  },
+  outlook: {
+    label: "Outlook / Microsoft 365",
+    smtpHost: "smtp.office365.com", smtpPort: 587, smtpSecure: false,
+    imapHost: "outlook.office365.com", imapPort: 993, imapSecure: true,
+    note: "If 2FA is on, create an App Password in your Microsoft account security settings and use it below.",
+  },
+};
+
 function MailboxDialog({ mb, onClose, onSaved }: { mb: MB | null; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = React.useState({
     senderName: mb?.senderName ?? "Shah Fahad",
@@ -105,10 +123,28 @@ function MailboxDialog({ mb, onClose, onSaved }: { mb: MB | null; onClose: () =>
     imapUser: mb?.imap?.user ?? "",
     imapPass: "",
   });
+  // New mailboxes default to monitoring replies; an existing send-only mailbox
+  // (no IMAP stored) stays send-only until the user turns it back on.
+  const [monitor, setMonitor] = React.useState<boolean>(mb ? !!mb.imap : true);
+  const [preset, setPreset] = React.useState<string>("");
   const [err, setErr] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setF({ ...f, [k]: e.target.type === "number" ? Number(e.target.value) : e.target.value });
+
+  function applyPreset(key: string) {
+    setPreset(key);
+    const p = PRESETS[key];
+    if (!p) return;
+    setF((cur) => ({
+      ...cur,
+      smtpHost: p.smtpHost, smtpPort: p.smtpPort, smtpSecure: p.smtpSecure,
+      imapHost: p.imapHost, imapPort: p.imapPort, imapSecure: p.imapSecure,
+      // Default the usernames to the email address — the usual case for Gmail/Microsoft.
+      smtpUser: cur.smtpUser || cur.email,
+      imapUser: cur.imapUser || cur.email,
+    }));
+  }
 
   async function save() {
     setErr("");
@@ -123,12 +159,15 @@ function MailboxDialog({ mb, onClose, onSaved }: { mb: MB | null; onClose: () =>
       dailyLimit: f.dailyLimit,
       hourlyLimit: f.hourlyLimit,
       smtp: { host: f.smtpHost, port: f.smtpPort, secure: f.smtpSecure, user: f.smtpUser, pass: f.smtpPass || undefined },
-      imap: { host: f.imapHost, port: f.imapPort, secure: f.imapSecure, user: f.imapUser, pass: f.imapPass || undefined },
+      // null = explicitly send-only; the API clears any stored IMAP config.
+      imap: monitor ? { host: f.imapHost, port: f.imapPort, secure: f.imapSecure, user: f.imapUser, pass: f.imapPass || undefined } : null,
     });
     setSaving(false);
     if (r.ok) onSaved();
     else setErr(r.error || "Save failed");
   }
+
+  const presetNote = preset ? PRESETS[preset]?.note : undefined;
 
   return (
     <Dialog
@@ -136,7 +175,7 @@ function MailboxDialog({ mb, onClose, onSaved }: { mb: MB | null; onClose: () =>
       onClose={onClose}
       wide
       title={mb ? "Edit mailbox" : "Add mailbox"}
-      description="SMTP sends; IMAP receives and threads replies."
+      description="SMTP sends email. Add IMAP so Arlo can read and thread replies."
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -145,6 +184,29 @@ function MailboxDialog({ mb, onClose, onSaved }: { mb: MB | null; onClose: () =>
       }
     >
       <div className="space-y-4">
+        <Field label="Email provider" hint="Pick one to auto-fill the server settings, or choose Other to enter them manually.">
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(PRESETS).map(([key, p]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => applyPreset(key)}
+                className={`rounded-full border px-3 py-1 text-xs ${preset === key ? "border-primary bg-primary/10 text-foreground" : "border-border-strong text-muted hover:bg-surface-2"}`}
+              >
+                {p.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPreset("other")}
+              className={`rounded-full border px-3 py-1 text-xs ${preset === "other" ? "border-primary bg-primary/10 text-foreground" : "border-border-strong text-muted hover:bg-surface-2"}`}
+            >
+              Other (manual)
+            </button>
+          </div>
+        </Field>
+        {presetNote && <p className="rounded-md border border-border bg-surface-2 p-2 text-xs text-muted">{presetNote}</p>}
+
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Sender name"><Input value={f.senderName} onChange={set("senderName")} /></Field>
           <Field label="Email address"><Input value={f.email} onChange={set("email")} placeholder="shah@yarqat.com" /></Field>
@@ -155,27 +217,41 @@ function MailboxDialog({ mb, onClose, onSaved }: { mb: MB | null; onClose: () =>
           <Field label="Hourly limit"><Input type="number" value={f.hourlyLimit} onChange={set("hourlyLimit")} /></Field>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2 rounded-md border border-border p-3">
-            <p className="text-xs font-semibold text-muted">SMTP (sending)</p>
+        <div className="space-y-2 rounded-md border border-border p-3">
+          <p className="text-xs font-semibold text-muted">SMTP (sending)</p>
+          <div className="grid gap-2 sm:grid-cols-2">
             <Field label="Host"><Input value={f.smtpHost} onChange={set("smtpHost")} placeholder="smtp.example.com" /></Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Port"><Input type="number" value={f.smtpPort} onChange={set("smtpPort")} /></Field>
               <Field label="TLS (SSL)"><div className="pt-2"><Switch checked={f.smtpSecure} onCheckedChange={(v) => setF({ ...f, smtpSecure: v })} /></div></Field>
             </div>
-            <Field label="Username"><Input value={f.smtpUser} onChange={set("smtpUser")} /></Field>
-            <Field label="Password" hint={mb ? "Leave blank to keep current" : undefined}><Input type="password" value={f.smtpPass} onChange={set("smtpPass")} autoComplete="off" /></Field>
+            <Field label="Username"><Input value={f.smtpUser} onChange={set("smtpUser")} placeholder="usually your email address" /></Field>
+            <Field label="Password" hint={mb ? "Leave blank to keep current" : "App password for Gmail/Microsoft"}><Input type="password" value={f.smtpPass} onChange={set("smtpPass")} autoComplete="off" /></Field>
           </div>
-          <div className="space-y-2 rounded-md border border-border p-3">
-            <p className="text-xs font-semibold text-muted">IMAP (receiving)</p>
-            <Field label="Host"><Input value={f.imapHost} onChange={set("imapHost")} placeholder="imap.example.com" /></Field>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Port"><Input type="number" value={f.imapPort} onChange={set("imapPort")} /></Field>
-              <Field label="TLS (SSL)"><div className="pt-2"><Switch checked={f.imapSecure} onCheckedChange={(v) => setF({ ...f, imapSecure: v })} /></div></Field>
+        </div>
+
+        <div className="rounded-md border border-border p-3">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <Switch checked={monitor} onCheckedChange={setMonitor} />
+            Monitor replies on this mailbox (IMAP)
+          </label>
+          {monitor ? (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <Field label="IMAP host"><Input value={f.imapHost} onChange={set("imapHost")} placeholder="imap.example.com" /></Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Port"><Input type="number" value={f.imapPort} onChange={set("imapPort")} /></Field>
+                <Field label="TLS (SSL)"><div className="pt-2"><Switch checked={f.imapSecure} onCheckedChange={(v) => setF({ ...f, imapSecure: v })} /></div></Field>
+              </div>
+              <Field label="Username"><Input value={f.imapUser} onChange={set("imapUser")} placeholder="usually your email address" /></Field>
+              <Field label="Password" hint={mb ? "Leave blank to keep current" : "App password for Gmail/Microsoft"}><Input type="password" value={f.imapPass} onChange={set("imapPass")} autoComplete="off" /></Field>
             </div>
-            <Field label="Username"><Input value={f.imapUser} onChange={set("imapUser")} /></Field>
-            <Field label="Password" hint={mb ? "Leave blank to keep current" : undefined}><Input type="password" value={f.imapPass} onChange={set("imapPass")} autoComplete="off" /></Field>
-          </div>
+          ) : (
+            <p className="mt-2 rounded-md border border-warning/40 bg-warning-soft p-2 text-xs text-warning">
+              ⚠️ Send-only mailbox. Arlo will send emails but <b>can&apos;t monitor replies</b> — it won&apos;t detect responses,
+              auto-pause follow-ups when someone replies, or show the conversation in the Inbox. Turn this on and add IMAP if your
+              provider supports it.
+            </p>
+          )}
         </div>
         {err && <p className="text-sm text-danger">{err}</p>}
       </div>

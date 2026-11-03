@@ -118,7 +118,9 @@ async function tick() {
     // 2) Mailbox sync (every ~2 min via modulo on minute)
     const minute = new Date().getMinutes();
     if (minute % 2 === 0) {
-      const mailboxes = await prisma.mailbox.findMany({ where: { status: "CONNECTED", active: true } });
+      // Only mailboxes with IMAP configured can be polled for replies; send-only
+      // mailboxes (imapConfigEnc = null) are skipped.
+      const mailboxes = await prisma.mailbox.findMany({ where: { status: "CONNECTED", active: true, imapConfigEnc: { not: null } } });
       for (const mb of mailboxes) await enqueue("imap", "sync", { mailboxId: mb.id });
     }
 

@@ -67,8 +67,11 @@ The core idea: **the AI proposes, deterministic code enforces.** Suppression, bu
 - Three modes per campaign: **Draft-only**, **Approve-first** (you click send), **Automatic** (sends within all guards).
 - **A/B subject lines:** give a campaign a set of subject variants (with a `{{business}}` token) and drafts rotate through them automatically, each tagged so Reports can compare reply rate per variant. Leave it empty and Arlo writes a fresh, unique subject every time.
 
+### 🧑‍💼 Job-search mode
+- Flip a campaign into **Job-search mode** and Arlo flips the whole engine around: it finds **companies hiring** for a target role (with an optional "posted within N days" freshness filter), researches each one, and drafts outreach that pitches **you** as the candidate — with your uploaded **CV attached to every email**. Same discovery → research → draft → approve → follow-up → reply-handling pipeline, same guardrails.
+
 ### 📥 Inbox, replies & follow-ups
-- IMAP sync (UIDVALIDITY-aware, deduped, threaded). Reply classification drafts a suggested response.
+- IMAP sync (UIDVALIDITY-aware, deduped, threaded). Reply classification drafts a suggested response. *(Send-only mailboxes skip this — they send but don't monitor replies.)*
 - **Any reply pauses follow-ups before the AI runs**; opt-outs auto-suppress; hard bounces suppress, temporary bounces don't.
 - **Filtered inbox views** — All, **Replies** (real human responses), **Sent**, Needs-attention, Interested, Out-of-office, Bounces, **Unsubscribes**, Unmatched and Archived, each with live counts.
 - **Opt-out safety net:** an "unsubscribe / opt-out / remove me" in *any* inbound reply suppresses the sender immediately — even when the reply can't be matched to a lead — so no one who asks to stop is emailed again.
@@ -130,8 +133,8 @@ All provider keys (AI, search, verifier, speech) are **optional in `.env`** — 
 ### First campaign
 1. **Settings → Connections** — add an AI key (OpenAI or Anthropic), test, approve a model, assign it to each task. You can mix providers per task.
 2. **Settings → Search / Email verifier** — add keys and test.
-3. **Settings → Mailboxes** — add your sending identity (SMTP + IMAP) and test.
-4. **Campaigns → New** — describe your ideal leads in plain English → review the brief → create (starts in Draft-only).
+3. **Settings → Mailboxes** — add your sending identity. Pick the **Gmail** or **Microsoft 365** preset to auto-fill the servers (use an app password), then test. IMAP is optional: add it so Arlo can read replies, or save the mailbox **send-only** (it will send but can't monitor replies).
+4. **Campaigns → New** — pick a mode first — **Leads hunt** (pitch your services to businesses) or **Job-search** (pitch yourself to companies hiring, CV attached) — then describe your targets in plain English → review the brief → create (starts in Draft-only).
 5. Run discovery, review the drafts, and **Approve & send** — or switch the campaign to Automatic once you trust it.
 
 ---
@@ -152,13 +155,15 @@ Speech providers are independent of your reasoning model — Arlo never assumes 
 
 | Capability | Providers | Where |
 |---|---|---|
-| Reasoning (per-task) | OpenAI, Anthropic | Settings → Connections |
+| Reasoning (per-task) | OpenAI, Anthropic, **or your own Claude Code / Codex CLI subscription** | Settings → Connections |
 | Lead discovery | Serper.dev, Google Places | Settings → Search |
 | Email verification | ZeroBounce, NeverBounce, Email Awesome | Settings → Email verifier |
 | Speech-to-text | OpenAI (Whisper / gpt-4o-transcribe), Deepgram | Settings → Voice |
 | Text-to-speech | OpenAI, ElevenLabs | Settings → Voice |
-| Mail | Any SMTP + IMAP mailbox | Settings → Mailboxes |
+| Mail | Any SMTP mailbox (Gmail / Microsoft 365 presets); IMAP optional for reply monitoring | Settings → Mailboxes |
 | Scheduling | Your own Cal.com / Google Calendar link | Settings → Automation & scheduling |
+
+**Bring your own AI subscription.** Instead of a metered API key, you can point a task at the **Claude Code** or **OpenAI Codex** CLI installed on the server — every AI call then runs on the flat plan you already pay for (Claude Pro/Max or ChatGPT Plus/Pro), with no per-token API bill. Each call runs in a read-only, throwaway workspace. Prefer an API key? That still works — it's per task. (CLI subscriptions are for the self-hosted deployment only.)
 
 The newest OpenAI and Anthropic models that reject a custom `temperature` are handled transparently. Email Awesome results arrive at a **secured webhook** (`/api/public/verifier/emailawesome`) whose bearer secret is verified *before* the body is trusted.
 
