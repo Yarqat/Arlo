@@ -93,7 +93,10 @@ export async function getPipelineStatus(): Promise<PipelineBlocker[]> {
   // 3) Connected-API problems (expired credits, billing, bad key, rate limit)
   //    recorded by provider-alert.ts. Show the latest per provider so every
   //    affected API (AI model, mailbox, verifier…) gets its own warning.
-  const since = new Date(Date.now() - 2 * 3600_000);
+  // 30-minute window: a genuine credit/billing/key problem re-fires on every
+  // attempt (deduped to every 10 min) so it stays visible while it persists,
+  // while a transient one clears quickly instead of lingering for hours.
+  const since = new Date(Date.now() - 30 * 60_000);
   const alerts = await prisma.auditEvent.findMany({
     where: { action: "provider_alert", createdAt: { gte: since } },
     orderBy: { createdAt: "desc" },

@@ -47,6 +47,23 @@ interface Adapter {
 
 const TIMEOUT = 60_000;
 
+/**
+ * Make a string safe to put in a JSON request body. Scraped web content can
+ * carry lone UTF-16 surrogates and C0 control chars (from broken page
+ * encodings); left in, they produce a malformed body the AI API rejects with
+ * errors like "unexpected end of hex escape". We drop unpaired surrogates and
+ * control chars (keeping \t, \n, \r) so the request always parses.
+ */
+export function sanitizeForJson(s: string): string {
+  return s
+    // unpaired high surrogate (not followed by a low surrogate)
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, "")
+    // unpaired low surrogate (not preceded by a high surrogate)
+    .replace(/(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "$1")
+    // C0 control chars except tab/newline/carriage-return
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
+}
+
 async function fetchJson(url: string, init: RequestInit) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT);
@@ -256,8 +273,8 @@ export async function runAiTask(input: RunTaskInput): Promise<AiResult> {
     const adapter = adapterFor(conn.kind);
     const out = await adapter.chat(cfg, {
       model: assignment.modelId,
-      system: input.system,
-      messages: input.messages,
+      system: input.system ? sanitizeForJson(input.system) : input.system,
+      messages: input.messages.map((m) => ({ ...m, content: sanitizeForJson(m.content) })),
       maxTokens,
       temperature: input.temperature,
     });
@@ -274,9 +291,11 @@ export async function runAiTask(input: RunTaskInput): Promise<AiResult> {
     await r.release();
     const msg = (e as Error).message;
     log.error("ai task failed", { task: input.task, err: msg });
-    // Surface provider-side money/auth failures (expired credits, billing, bad
-    // key, rate limit) to the dashboard so the owner knows to act.
-    if (e instanceof ProviderError || isProviderCreditError(msg)) {
+    // Surface only provider-side money/auth failures (expired credits, billing,
+    // bad key, rate limit) to the dashboard — NOT every error. A malformed-body
+    // or transient error is a code/data issue, not something the owner fixes in
+    // Connections, so it must not masquerade as a credits warning.
+    if (isProviderCreditError(msg)) {
       await recordProviderAlert("AI", `AI provider error: ${msg}`);
     }
     throw e;
