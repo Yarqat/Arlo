@@ -146,11 +146,16 @@ const anthropic: Adapter = {
       "Content-Type": "application/json",
       "x-api-key": cfg.apiKey || "",
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
     };
     const payload: Record<string, unknown> = {
       model: opts.model,
       max_tokens: opts.maxTokens ?? 1024,
-      ...(opts.system ? { system: opts.system } : {}),
+      // Prompt caching: mark the system prompt as a cacheable prefix. Across the
+      // many leads in a campaign the system (profile/offer/task rules) is stable,
+      // so this restores cache hits and cuts input cost. Anthropic ignores it
+      // when the prefix is below the cache minimum, so it's always safe.
+      ...(opts.system ? { system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }] } : {}),
       messages: opts.messages.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
       // The newest Claude models (Claude 5 family) enable extended thinking by
       // default, which consumes the whole max_tokens budget on reasoning and can
