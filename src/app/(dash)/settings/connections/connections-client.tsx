@@ -19,6 +19,29 @@ const KIND_LABEL: Record<string, string> = {
   AI_OPENAI: "OpenAI",
   AI_ANTHROPIC: "Anthropic",
   AI_CLAUDE_CODE: "Claude Code CLI",
+  AI_CODEX: "Codex CLI",
+};
+
+// Per-provider copy for the two subscription-backed CLI options. Keeping both in
+// one table makes the setup steps identical in shape so either is easy to follow.
+const CLI_INFO: Record<
+  string,
+  { cmd: string; login: string; plan: string; pathEnv: string; models: string }
+> = {
+  AI_CLAUDE_CODE: {
+    cmd: "claude",
+    login: "claude login",
+    plan: "Claude Pro/Max",
+    pathEnv: "CLAUDE_CLI_PATH",
+    models: "sonnet",
+  },
+  AI_CODEX: {
+    cmd: "codex",
+    login: "codex login",
+    plan: "ChatGPT Plus/Pro",
+    pathEnv: "CODEX_CLI_PATH",
+    models: "gpt-5-codex",
+  },
 };
 
 async function post(body: unknown) {
@@ -59,14 +82,20 @@ function ConnectionCard({ conn }: { conn: Conn }) {
   const router = useRouter();
   const [apiKey, setApiKey] = React.useState("");
   const [baseUrl, setBaseUrl] = React.useState("");
+  const [cliPath, setCliPath] = React.useState("");
   const [testing, setTesting] = React.useState(false);
   const [msg, setMsg] = React.useState<{ ok: boolean; text: string } | null>(null);
   const [newModel, setNewModel] = React.useState("");
-  const isCli = conn.kind === "AI_CLAUDE_CODE";
+  const cli = CLI_INFO[conn.kind];
+  const isCli = !!cli;
 
   async function save() {
     await post({ action: "save", id: conn.id, apiKey: apiKey || undefined, baseUrl: baseUrl || undefined });
     setApiKey("");
+    router.refresh();
+  }
+  async function saveCliPath() {
+    await post({ action: "save", id: conn.id, cliPath });
     router.refresh();
   }
   async function test() {
@@ -90,18 +119,24 @@ function ConnectionCard({ conn }: { conn: Conn }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {isCli ? (
-          <div className="space-y-2 rounded-lg border border-border bg-surface-2 p-3 text-sm">
-            <p className="font-medium text-foreground">No API key — runs on your own Claude subscription.</p>
+          <div className="space-y-3 rounded-lg border border-border bg-surface-2 p-3 text-sm">
+            <p className="font-medium text-foreground">No API key — runs on your own {cli.plan} subscription.</p>
             <p className="text-muted">
-              Model calls go through the local <code>claude</code> CLI in isolation (<code>--safe-mode</code>: no project
-              files, hooks, MCP or tools), so there is no per-token API bill — only your Claude Pro/Max plan limits.
+              Model calls go through the local <code>{cli.cmd}</code> CLI in a read-only, throwaway workspace (no project
+              files, tools or network side-effects), so there is no per-token API bill — only your {cli.plan} plan limits.
             </p>
             <ol className="list-decimal space-y-1 pl-5 text-muted">
-              <li>On the server, install the Claude Code CLI for the app&apos;s user and log in: <code>claude login</code> (or <code>claude setup-token</code>).</li>
-              <li>If <code>claude</code> is not on that user&apos;s PATH, set <code>CLAUDE_CLI_PATH=/full/path/to/claude</code> in the server .env and restart.</li>
+              <li>On the server, install the {KIND_LABEL[conn.kind]} <b>for the app&apos;s own user</b> and log in: <code>{cli.login}</code>.</li>
+              <li>
+                If <code>{cli.cmd}</code> is not on that user&apos;s PATH, either paste its full path below and <b>Save
+                path</b>, or set <code>{cli.pathEnv}=/full/path/to/{cli.cmd}</code> in the server .env and restart.
+              </li>
               <li>Click <b>Test connection</b> — it runs a tiny prompt to confirm the login and lists the models.</li>
-              <li>Approve a model (e.g. <code>sonnet</code>) and assign it to tasks below. Leave pricing at 0 — the subscription is not billed per token.</li>
+              <li>Approve a model (e.g. <code>{cli.models}</code>) and assign it to tasks below. Leave pricing at 0 — the subscription is not billed per token.</li>
             </ol>
+            <Field label="CLI path (optional)" hint={`Absolute path to the ${cli.cmd} binary. Leave blank if it is on the app user's PATH or set via ${cli.pathEnv}.`}>
+              <Input value={cliPath} onChange={(e) => setCliPath(e.target.value)} placeholder={`/usr/local/bin/${cli.cmd}`} autoComplete="off" />
+            </Field>
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -116,6 +151,7 @@ function ConnectionCard({ conn }: { conn: Conn }) {
 
         <div className="flex flex-wrap items-center gap-2">
           {!isCli && <Button variant="secondary" onClick={save} disabled={!apiKey && !baseUrl}>Save key</Button>}
+          {isCli && <Button variant="secondary" onClick={saveCliPath}>Save path</Button>}
           <Button variant="outline" onClick={test} disabled={testing}>{testing ? "Testing…" : "Test connection"}</Button>
           {msg && <span className={msg.ok ? "text-sm text-success" : "text-sm text-danger"}>{msg.text}</span>}
           {!msg && conn.lastError && <span className="text-sm text-danger">{conn.lastError}</span>}

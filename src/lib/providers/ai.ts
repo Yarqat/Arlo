@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { prisma } from "@/lib/db";
 import { reserve } from "@/lib/budget";
 import { resolveConfig } from "./secrets";
@@ -212,24 +214,25 @@ const anthropic: Adapter = {
 // (see Settings → Connections for the setup steps).
 const CLI_TIMEOUT = 120_000;
 
-function runClaudeCli(bin: string, args: string[], stdin: string): Promise<string> {
+interface CliRun { code: number | null; out: string; err: string }
+
+// Spawn a local CLI in a scratch cwd, feed the prompt on stdin, capture output.
+// Shared by the Claude Code and Codex adapters. `cwd` lets the caller point the
+// CLI at an isolated temp dir (sandboxed, outside any git repo).
+function runCli(label: string, bin: string, args: string[], stdin: string, cwd: string): Promise<CliRun> {
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(bin, args, { cwd: os.tmpdir(), env: { ...process.env }, stdio: ["pipe", "pipe", "pipe"] });
+      child = spawn(bin, args, { cwd, env: { ...process.env }, stdio: ["pipe", "pipe", "pipe"] });
     } catch (e) {
-      return reject(new ProviderError(`Claude CLI not runnable: ${(e as Error).message}`));
+      return reject(new ProviderError(`${label} CLI not runnable: ${(e as Error).message}`));
     }
     let out = "", err = "";
-    const timer = setTimeout(() => { child!.kill("SIGKILL"); reject(new ProviderError("Claude CLI timed out")); }, CLI_TIMEOUT);
+    const timer = setTimeout(() => { child!.kill("SIGKILL"); reject(new ProviderError(`${label} CLI timed out`)); }, CLI_TIMEOUT);
     child.stdout.on("data", (d) => (out += d.toString()));
     child.stderr.on("data", (d) => (err += d.toString()));
-    child.on("error", (e) => { clearTimeout(timer); reject(new ProviderError(`Claude CLI not found or not runnable: ${e.message}`)); });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0 && out.trim()) resolve(out);
-      else reject(new ProviderError(err.trim() || out.trim() || `Claude CLI exited with code ${code}`));
-    });
+    child.on("error", (e) => { clearTimeout(timer); reject(new ProviderError(`${label} CLI not found or not runnable: ${e.message}`)); });
+    child.on("close", (code) => { clearTimeout(timer); resolve({ code, out, err }); });
     child.stdin!.end(stdin);
   });
 }
@@ -243,9 +246,12 @@ const claudeCode: Adapter = {
     const args = ["-p", "--output-format", "json", "--safe-mode"];
     if (opts.system) args.push("--system-prompt", opts.system);
     if (opts.model) args.push("--model", opts.model);
-    const raw = await runClaudeCli(bin, args, prompt);
+    const run = await runCli("Claude", bin, args, prompt, os.tmpdir());
+    if (run.code !== 0 || !run.out.trim()) {
+      throw new ProviderError(run.err.trim() || run.out.trim() || `Claude CLI exited with code ${run.code}`);
+    }
     let j: any;
-    try { j = JSON.parse(raw); } catch { throw new ProviderError("Claude CLI returned non-JSON output."); }
+    try { j = JSON.parse(run.out); } catch { throw new ProviderError("Claude CLI returned non-JSON output."); }
     if (j.is_error || j.type === "error" || (j.subtype && j.subtype !== "success")) {
       throw new ProviderError(typeof j.result === "string" ? j.result : `Claude CLI error (${j.subtype ?? "unknown"})`);
     }
@@ -267,6 +273,71 @@ const claudeCode: Adapter = {
   },
 };
 
+// --- Codex CLI (subscription-backed, NO API key) ---
+// Self-host only: drives the locally-installed OpenAI `codex` CLI in headless
+// mode (`codex exec`) so model calls run on the owner's own Codex/ChatGPT
+// subscription with no per-token API bill. Run read-only and git-agnostic in a
+// throwaway temp dir; the final assistant message is captured via
+// `-o <file>` (--output-last-message). Requires `codex` installed and logged in
+// AS THE APP USER (see Settings → Connections for the setup steps).
+const codexCli: Adapter = {
+  async chat(cfg, opts) {
+    const bin = cfg.cliPath || process.env.CODEX_CLI_PATH || "codex";
+    // Codex exec has no separate system-prompt flag; fold any system message in.
+    const parts: string[] = [];
+    if (opts.system) parts.push(opts.system);
+    parts.push(
+      ...opts.messages.map((m) => (m.role === "assistant" ? `Assistant: ${m.content}` : m.content)),
+    );
+    const prompt = parts.join("\n\n");
+
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "codex-"));
+    const outFile = path.join(dir, "last-message.txt");
+    const args = [
+      "exec",
+      "--skip-git-repo-check",
+      "-s", "read-only",
+      "-C", dir,
+      "--output-last-message", outFile,
+    ];
+    if (opts.model) args.push("-m", opts.model);
+    try {
+      const run = await runCli("Codex", bin, args, prompt, dir);
+      let text = "";
+      try {
+        text = (await fs.readFile(outFile, "utf8")).trim();
+      } catch {
+        /* no output file written */
+      }
+      if (run.code !== 0) {
+        throw new ProviderError(run.err.trim() || text || run.out.trim() || `Codex CLI exited with code ${run.code}`);
+      }
+      // Fall back to stdout if the CLI did not write the last-message file.
+      if (!text) text = run.out.trim();
+      if (!text) throw new ProviderError("Codex CLI produced no output.");
+      // Codex exec does not report token counts in this mode; usage stays 0
+      // (subscription-backed, not billed per token).
+      return { text, inputTokens: 0, outputTokens: 0 };
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+  },
+  async listModels() {
+    // Codex model slugs the owner allowlists. Add others manually in the UI.
+    return ["gpt-5-codex", "gpt-5"];
+  },
+  async test(cfg) {
+    try {
+      // Omit --model so Codex uses its own configured default for the probe.
+      const r = await codexCli.chat(cfg, { model: "", messages: [{ role: "user", content: "Reply with the single word: OK" }] });
+      if (r.text) return { ok: true, models: ["gpt-5-codex", "gpt-5"] };
+      return { ok: false, error: "No output. Is the codex CLI installed and logged in as the app user? Run `codex login` as that user." };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  },
+};
+
 export function adapterFor(kind: string): Adapter {
   switch (kind) {
     case "AI_OPENAI":
@@ -275,6 +346,8 @@ export function adapterFor(kind: string): Adapter {
       return anthropic;
     case "AI_CLAUDE_CODE":
       return claudeCode;
+    case "AI_CODEX":
+      return codexCli;
     default:
       throw new ProviderError(`No adapter for connection kind ${kind}`);
   }
@@ -282,8 +355,9 @@ export function adapterFor(kind: string): Adapter {
 
 export async function testConnection(conn: ProviderConnection) {
   const cfg = resolveConfig(conn);
-  // Claude Code uses the subscription CLI — no API key to check.
+  // CLI providers use a subscription-backed CLI — no API key to check.
   if (conn.kind === "AI_CLAUDE_CODE") return claudeCode.test(cfg);
+  if (conn.kind === "AI_CODEX") return codexCli.test(cfg);
   if (!cfg.apiKey) return { ok: false, error: "No API key configured (set it here or in .env)." };
   return adapterFor(conn.kind).test(cfg);
 }

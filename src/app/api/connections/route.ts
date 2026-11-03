@@ -4,10 +4,11 @@ import { prisma } from "@/lib/db";
 import { ownerRoute } from "@/lib/api";
 import { encryptJson, decryptJson } from "@/lib/crypto";
 import { testConnection } from "@/lib/providers/ai";
+import { isCliAiKind } from "@/lib/providers/secrets";
 import { audit } from "@/lib/audit";
 
 const schema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("save"), id: z.string(), apiKey: z.string().optional(), baseUrl: z.string().optional() }),
+  z.object({ action: z.literal("save"), id: z.string(), apiKey: z.string().optional(), baseUrl: z.string().optional(), cliPath: z.string().optional() }),
   z.object({ action: z.literal("test"), id: z.string() }),
   z.object({
     action: z.literal("model"),
@@ -34,9 +35,17 @@ export const POST = ownerRoute(async (req) => {
       else next.apiKey = b.apiKey;
     }
     if (b.baseUrl !== undefined) next.baseUrl = b.baseUrl;
+    if (b.cliPath !== undefined) {
+      if (b.cliPath.trim() === "") delete next.cliPath;
+      else next.cliPath = b.cliPath.trim();
+    }
+    // CLI providers have no API key; a path is optional and the CLI can be on
+    // PATH, so never force them back to UNCONFIGURED on save. Key providers go
+    // UNCONFIGURED when their key is cleared.
+    const status = isCliAiKind(conn.kind) ? conn.status : next.apiKey ? conn.status : "UNCONFIGURED";
     await prisma.providerConnection.update({
       where: { id: b.id },
-      data: { configEnc: encryptJson(next), status: next.apiKey ? conn.status : "UNCONFIGURED" },
+      data: { configEnc: encryptJson(next), status },
     });
     await audit("owner", "connection_save", "ProviderConnection", b.id, `Updated credentials for ${conn.kind}`);
     return NextResponse.json({ ok: true });
@@ -53,7 +62,7 @@ export const POST = ownerRoute(async (req) => {
           status: "CONNECTED",
           lastTestedAt: new Date(),
           lastError: "",
-          connectionType: conn.kind === "AI_CLAUDE_CODE" ? "cli-subscription" : "api",
+          connectionType: isCliAiKind(conn.kind) ? "cli-subscription" : "api",
           meta: { discoveredModels: models, discoveredAt: new Date().toISOString() },
         },
       });

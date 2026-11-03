@@ -67,7 +67,7 @@ async function main() {
     });
   }
 
-  for (const kind of ["AI_OPENAI", "AI_ANTHROPIC", "AI_CLAUDE_CODE", "SEARCH", "EMAIL_VERIFIER"] as const) {
+  for (const kind of ["AI_OPENAI", "AI_ANTHROPIC", "AI_CLAUDE_CODE", "AI_CODEX", "SEARCH", "EMAIL_VERIFIER"] as const) {
     await prisma.providerConnection.upsert({
       where: { kind_name: { kind, name: "default" } },
       create: { kind, name: "default", status: "UNCONFIGURED" },

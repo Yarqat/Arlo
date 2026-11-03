@@ -11,6 +11,7 @@ const AI_KINDS: ConnectionKind[] = [
   ConnectionKind.AI_OPENAI,
   ConnectionKind.AI_ANTHROPIC,
   ConnectionKind.AI_CLAUDE_CODE,
+  ConnectionKind.AI_CODEX,
 ];
 const TASKS = [
   ["LEAD_QUALIFICATION", "Lead qualification"],
@@ -46,8 +47,8 @@ export default async function ConnectionsPage() {
     })),
   }));
 
-  // Show the subscription-backed Claude Code option first (recommended: no API bill).
-  const ORDER: Record<string, number> = { AI_CLAUDE_CODE: 0, AI_ANTHROPIC: 1, AI_OPENAI: 2 };
+  // Show the subscription-backed CLI options first (recommended: no API bill).
+  const ORDER: Record<string, number> = { AI_CLAUDE_CODE: 0, AI_CODEX: 1, AI_ANTHROPIC: 2, AI_OPENAI: 3 };
   data.sort((a, b) => (ORDER[a.kind] ?? 9) - (ORDER[b.kind] ?? 9));
 
   const allowed = data.flatMap((c) =>
@@ -56,7 +57,7 @@ export default async function ConnectionsPage() {
 
   return (
     <div className="space-y-6">
-      <SettingsBack title="AI connections & models" description="Recommended: Claude Code CLI runs on your own Claude subscription with no API bill. Or add an OpenAI/Anthropic API key (encrypted, or from the server .env). The assistant never uses a model you have not approved." />
+      <SettingsBack title="AI connections & models" description="Recommended: the Claude Code or Codex CLI runs on your own subscription with no per-token API bill. Or add an OpenAI/Anthropic API key (encrypted, or from the server .env). The assistant never uses a model you have not approved." />
       {allowed.length === 0 && (
         <Alert tone="info" title="No approved models yet">
           Add a key, run <b>Test connection</b> to discover models, approve the ones you want, then assign them to tasks below.
