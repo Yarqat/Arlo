@@ -24,6 +24,10 @@ const briefFields = {
   allowCatchAll: z.boolean().optional(),
   allowUnknown: z.boolean().optional(),
   timezone: z.string().max(64).optional(),
+  // Job-search mode
+  kind: z.enum(["SALES", "JOB_SEARCH"]).optional(),
+  targetRole: z.string().max(200).optional(),
+  jobPostMaxAgeDays: z.coerce.number().int().min(0).max(3650).nullable().optional(),
 };
 
 const schema = z.discriminatedUnion("action", [
@@ -106,6 +110,9 @@ export const POST = ownerRoute(async (req) => {
         offer: b.offer ?? "",
         requiredContactFields: b.requiredContactFields ?? ["email"],
         briefRaw: b.briefRaw ?? "",
+        kind: b.kind ?? "SALES",
+        targetRole: b.targetRole ?? "",
+        jobPostMaxAgeDays: b.jobPostMaxAgeDays ?? null,
         maxNewLeadsPerDay: b.maxNewLeadsPerDay ?? 20,
         allowCatchAll: b.allowCatchAll ?? false,
         allowUnknown: b.allowUnknown ?? false,

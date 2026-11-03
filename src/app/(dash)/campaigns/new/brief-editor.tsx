@@ -25,11 +25,15 @@ type Brief = {
   offer: string;
   requiredContactFields: string[];
   maxNewLeadsPerDay: number;
+  kind: string;
+  targetRole: string;
+  jobPostMaxAgeDays: number | null;
 };
 
 const EMPTY: Brief = {
   name: "", businessType: "", countries: [], cities: [], language: "English",
   servicesOffered: [], positiveCriteria: "", exclusions: "", offer: "", requiredContactFields: ["email"], maxNewLeadsPerDay: 20,
+  kind: "SALES", targetRole: "", jobPostMaxAgeDays: null,
 };
 
 async function post(body: unknown) {
@@ -47,6 +51,19 @@ export function BriefEditor() {
   const [parsing, setParsing] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
   const [note, setNote] = React.useState("");
+  const [cvName, setCvName] = React.useState("");
+  const [cvBusy, setCvBusy] = React.useState(false);
+
+  async function uploadCv(file: File) {
+    setCvBusy(true);
+    const fd = new FormData();
+    fd.set("cv", file);
+    const res = await fetch("/api/settings/cv", { method: "POST", body: fd });
+    const d = await res.json().catch(() => ({}));
+    setCvBusy(false);
+    if (res.ok) setCvName(d.name || file.name);
+    else setNote(d.error || "CV upload failed");
+  }
 
   async function parse() {
     if (text.trim().length < 3) return;
@@ -117,6 +134,35 @@ export function BriefEditor() {
         <Card>
           <CardHeader><CardTitle>Campaign brief</CardTitle><CardDescription>Everything is editable.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={brief.kind === "JOB_SEARCH"}
+                onChange={(e) => setBrief((b) => (b ? { ...b, kind: e.target.checked ? "JOB_SEARCH" : "SALES" } : b))}
+              />
+              Job-search mode — pitch a candidate to companies hiring for a role
+            </label>
+            {brief.kind === "JOB_SEARCH" && (
+              <div className="grid gap-4 rounded-lg border border-border bg-surface-2 p-3 sm:grid-cols-2">
+                <Field label="Target role"><Input value={brief.targetRole} onChange={setStr("targetRole")} placeholder="e.g. Senior React Developer" /></Field>
+                <Field label="Only postings newer than (days, optional)">
+                  <Input type="number" value={brief.jobPostMaxAgeDays ?? ""} onChange={(e) => setBrief((b) => (b ? { ...b, jobPostMaxAgeDays: e.target.value ? Number(e.target.value) : null } : b))} />
+                </Field>
+                <div className="sm:col-span-2">
+                  <Field label="Your CV — attached to every email (PDF or Word)">
+                    <input
+                      type="file"
+                      accept="application/pdf,.doc,.docx"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadCv(f); }}
+                      className="block w-full text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-surface file:px-3 file:py-2 file:text-sm file:text-foreground"
+                    />
+                  </Field>
+                  {cvBusy ? <p className="mt-1 text-xs text-muted">Uploading…</p>
+                    : cvName ? <p className="mt-1 text-xs text-success">CV uploaded: {cvName}</p>
+                    : <p className="mt-1 text-xs text-muted">No CV uploaded yet.</p>}
+                </div>
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Campaign name"><Input value={brief.name} onChange={setStr("name")} /></Field>
               <Field label="Business type / niche"><Input value={brief.businessType} onChange={setStr("businessType")} /></Field>

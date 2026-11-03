@@ -295,6 +295,12 @@ model Campaign {
   requiredContactFields String[] @default(["email"])
   briefRaw      String   @default("") // the original plain-English request
 
+  // Job-search mode: target companies hiring for a role and pitch a candidate
+  // (CV on the settings) instead of selling a service.
+  kind              String @default("SALES") // SALES | JOB_SEARCH
+  targetRole        String @default("")       // e.g. "Senior React Developer"
+  jobPostMaxAgeDays Int?                       // only consider postings newer than N days
+
   // Limits (per campaign; null = fall back to global)
   maxNewLeadsPerDay Int?   @default(20)
   dailyEmailLimit   Int?
@@ -868,6 +874,10 @@ model GlobalSettings {
   enrichSocial     Boolean @default(true)  // also follow linked social profiles (Facebook/Instagram/LinkedIn/etc.) to harvest emails
   emailAllContacts Boolean @default(false) // when a company has several eligible contacts, draft to all of them (not just the best one)
   trackClicks      Boolean @default(false) // wrap links so clicks are logged (no open pixels)
+
+  // Job-search mode: the candidate's CV, attached to job-outreach emails.
+  cvPath           String  @default("") // uploaded CV file (basename under /var/lib/yarqat/uploads)
+  cvName           String  @default("") // original filename, used as the attachment name
 
   // Scheduling — the OWNER connects their OWN Cal.com / Google Calendar. We never
   // use any Anthropic/Claude credentials here; the owner pastes their own link/key.

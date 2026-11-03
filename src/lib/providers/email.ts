@@ -78,6 +78,7 @@ export interface SendInput {
   inReplyTo?: string;
   references?: string;
   headers?: Record<string, string>;
+  attachments?: { filename: string; path: string }[];
 }
 
 export interface SendResult {
@@ -101,6 +102,7 @@ export async function sendViaMailbox(mb: Mailbox, input: SendInput): Promise<Sen
       inReplyTo: input.inReplyTo,
       references: input.references,
       headers: input.headers,
+      attachments: input.attachments,
     });
     const accepted = (info.accepted ?? []).length > 0 && (info.rejected ?? []).length === 0;
     return { accepted, providerMessageId: info.messageId || input.messageId, response: info.response || "" };

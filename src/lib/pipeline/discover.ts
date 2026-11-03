@@ -163,7 +163,22 @@ export async function discoverForCampaign(
 }
 
 /** Build a handful of query variations so discovery surfaces different businesses. */
-function buildQueries(campaign: { businessType: string; name: string }): string[] {
+function buildQueries(campaign: { businessType: string; name: string; kind?: string; targetRole?: string }): string[] {
+  // Job-search mode: find COMPANIES hiring for the target role, via the search
+  // provider + public career pages (never LinkedIn/Indeed scraping).
+  if (campaign.kind === "JOB_SEARCH") {
+    const role = (campaign.targetRole || campaign.businessType || "").trim();
+    if (!role) return [""];
+    const out = new Set<string>([
+      `companies hiring ${role}`,
+      `${role} job opening`,
+      `"${role}" careers hiring`,
+      `${role} vacancy apply`,
+      `startups hiring ${role}`,
+      `${role} "we're hiring"`,
+    ]);
+    return [...out].slice(0, 6);
+  }
   const base = (campaign.businessType || campaign.name || "").trim();
   if (!base) return [""];
   const out = new Set<string>([base]);
