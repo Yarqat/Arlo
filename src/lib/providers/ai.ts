@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import os from "node:os";
 import { prisma } from "@/lib/db";
 import { reserve } from "@/lib/budget";
 import { resolveConfig } from "./secrets";
@@ -201,12 +203,78 @@ const anthropic: Adapter = {
   },
 };
 
+// --- Claude Code CLI (subscription-backed, NO API key) ---
+// Self-host only: drives the locally-installed `claude` CLI in headless mode
+// (`-p --output-format json --safe-mode`) so model calls run on the owner's own
+// Claude subscription with no per-token API bill. --safe-mode starts with all
+// customizations off (no CLAUDE.md, hooks, MCP, plugins, settings); we also run
+// in a temp cwd. Requires `claude` installed and logged in AS THE APP USER
+// (see Settings → Connections for the setup steps).
+const CLI_TIMEOUT = 120_000;
+
+function runClaudeCli(bin: string, args: string[], stdin: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(bin, args, { cwd: os.tmpdir(), env: { ...process.env }, stdio: ["pipe", "pipe", "pipe"] });
+    } catch (e) {
+      return reject(new ProviderError(`Claude CLI not runnable: ${(e as Error).message}`));
+    }
+    let out = "", err = "";
+    const timer = setTimeout(() => { child!.kill("SIGKILL"); reject(new ProviderError("Claude CLI timed out")); }, CLI_TIMEOUT);
+    child.stdout.on("data", (d) => (out += d.toString()));
+    child.stderr.on("data", (d) => (err += d.toString()));
+    child.on("error", (e) => { clearTimeout(timer); reject(new ProviderError(`Claude CLI not found or not runnable: ${e.message}`)); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0 && out.trim()) resolve(out);
+      else reject(new ProviderError(err.trim() || out.trim() || `Claude CLI exited with code ${code}`));
+    });
+    child.stdin!.end(stdin);
+  });
+}
+
+const claudeCode: Adapter = {
+  async chat(cfg, opts) {
+    const bin = cfg.cliPath || process.env.CLAUDE_CLI_PATH || "claude";
+    const prompt = opts.messages
+      .map((m) => (m.role === "assistant" ? `Assistant: ${m.content}` : m.content))
+      .join("\n\n");
+    const args = ["-p", "--output-format", "json", "--safe-mode"];
+    if (opts.system) args.push("--system-prompt", opts.system);
+    if (opts.model) args.push("--model", opts.model);
+    const raw = await runClaudeCli(bin, args, prompt);
+    let j: any;
+    try { j = JSON.parse(raw); } catch { throw new ProviderError("Claude CLI returned non-JSON output."); }
+    if (j.is_error || j.type === "error" || (j.subtype && j.subtype !== "success")) {
+      throw new ProviderError(typeof j.result === "string" ? j.result : `Claude CLI error (${j.subtype ?? "unknown"})`);
+    }
+    const text = typeof j.result === "string" ? j.result : "";
+    return { text, inputTokens: j.usage?.input_tokens ?? 0, outputTokens: j.usage?.output_tokens ?? 0 };
+  },
+  async listModels() {
+    // CLI aliases; the owner allowlists which to use. No per-token cost.
+    return ["opus", "sonnet", "haiku"];
+  },
+  async test(cfg) {
+    try {
+      const r = await claudeCode.chat(cfg, { model: cfg.model || "sonnet", messages: [{ role: "user", content: "Reply with the single word: OK" }] });
+      if (r.text) return { ok: true, models: ["opus", "sonnet", "haiku"] };
+      return { ok: false, error: "No output. Is the claude CLI logged in as the app user? Run `claude login` as that user." };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  },
+};
+
 export function adapterFor(kind: string): Adapter {
   switch (kind) {
     case "AI_OPENAI":
       return openai;
     case "AI_ANTHROPIC":
       return anthropic;
+    case "AI_CLAUDE_CODE":
+      return claudeCode;
     default:
       throw new ProviderError(`No adapter for connection kind ${kind}`);
   }
@@ -214,9 +282,8 @@ export function adapterFor(kind: string): Adapter {
 
 export async function testConnection(conn: ProviderConnection) {
   const cfg = resolveConfig(conn);
-  if (conn.kind === "AI_CLAUDE_CODE") {
-    return { ok: false, error: "Claude Code CLI adapter must be enabled on the server with a dedicated user." };
-  }
+  // Claude Code uses the subscription CLI — no API key to check.
+  if (conn.kind === "AI_CLAUDE_CODE") return claudeCode.test(cfg);
   if (!cfg.apiKey) return { ok: false, error: "No API key configured (set it here or in .env)." };
   return adapterFor(conn.kind).test(cfg);
 }

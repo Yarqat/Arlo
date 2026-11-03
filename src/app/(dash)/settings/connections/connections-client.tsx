@@ -90,11 +90,19 @@ function ConnectionCard({ conn }: { conn: Conn }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {isCli ? (
-          <p className="text-sm text-muted">
-            The Claude Code CLI adapter requires a legitimate authenticated installation running as a dedicated
-            unprivileged user on the server (set <code>CLAUDE_CODE_BIN</code>, <code>CLAUDE_CODE_USER</code> and
-            <code> CLAUDE_CODE_WORKDIR</code> in .env). Subscription limits are not API billing and are shown separately.
-          </p>
+          <div className="space-y-2 rounded-lg border border-border bg-surface-2 p-3 text-sm">
+            <p className="font-medium text-foreground">No API key — runs on your own Claude subscription.</p>
+            <p className="text-muted">
+              Model calls go through the local <code>claude</code> CLI in isolation (<code>--safe-mode</code>: no project
+              files, hooks, MCP or tools), so there is no per-token API bill — only your Claude Pro/Max plan limits.
+            </p>
+            <ol className="list-decimal space-y-1 pl-5 text-muted">
+              <li>On the server, install the Claude Code CLI for the app&apos;s user and log in: <code>claude login</code> (or <code>claude setup-token</code>).</li>
+              <li>If <code>claude</code> is not on that user&apos;s PATH, set <code>CLAUDE_CLI_PATH=/full/path/to/claude</code> in the server .env and restart.</li>
+              <li>Click <b>Test connection</b> — it runs a tiny prompt to confirm the login and lists the models.</li>
+              <li>Approve a model (e.g. <code>sonnet</code>) and assign it to tasks below. Leave pricing at 0 — the subscription is not billed per token.</li>
+            </ol>
+          </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="API key" hint={conn.source === "env" ? "Currently sourced from .env. Entering a key here overrides nothing unless .env is empty." : "Stored encrypted. Leave blank to keep current."}>
@@ -113,7 +121,7 @@ function ConnectionCard({ conn }: { conn: Conn }) {
           {!msg && conn.lastError && <span className="text-sm text-danger">{conn.lastError}</span>}
         </div>
 
-        {!isCli && (conn.models.length > 0 || conn.discoveredModels.length > 0) && (
+        {(conn.models.length > 0 || conn.discoveredModels.length > 0) && (
           <div className="rounded-md border border-border">
             <div className="border-b border-border px-3 py-2 text-xs font-medium text-muted">
               Approved models & pricing (per 1M tokens)

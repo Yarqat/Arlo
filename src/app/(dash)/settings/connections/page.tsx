@@ -46,13 +46,17 @@ export default async function ConnectionsPage() {
     })),
   }));
 
+  // Show the subscription-backed Claude Code option first (recommended: no API bill).
+  const ORDER: Record<string, number> = { AI_CLAUDE_CODE: 0, AI_ANTHROPIC: 1, AI_OPENAI: 2 };
+  data.sort((a, b) => (ORDER[a.kind] ?? 9) - (ORDER[b.kind] ?? 9));
+
   const allowed = data.flatMap((c) =>
     c.models.filter((m) => m.allowed).map((m) => ({ connectionId: c.id, kind: c.kind, modelId: m.modelId })),
   );
 
   return (
     <div className="space-y-6">
-      <SettingsBack title="AI connections & models" description="Keys can be set here (encrypted) or placed in the server .env file. The assistant never uses a model you have not approved." />
+      <SettingsBack title="AI connections & models" description="Recommended: Claude Code CLI runs on your own Claude subscription with no API bill. Or add an OpenAI/Anthropic API key (encrypted, or from the server .env). The assistant never uses a model you have not approved." />
       {allowed.length === 0 && (
         <Alert tone="info" title="No approved models yet">
           Add a key, run <b>Test connection</b> to discover models, approve the ones you want, then assign them to tasks below.
