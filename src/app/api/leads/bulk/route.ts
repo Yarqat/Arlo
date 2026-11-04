@@ -6,6 +6,7 @@ import { enqueue } from "@/lib/queue";
 import { changeStage } from "@/lib/pipeline/stage";
 import { audit } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
+import { buildLeadWhere } from "@/lib/lead-filter";
 
 const CAP = 5000;
 
@@ -15,24 +16,18 @@ const schema = z.object({
   leadIds: z.array(z.string()).max(CAP).optional(),
   stage: z.string().optional(),
   q: z.string().optional(),
+  campaign: z.string().optional(),
+  qualification: z.string().optional(),
+  hasContact: z.enum(["yes", "no"]).optional(),
   newStage: z.string().optional(), // for action === "stage"
 });
-
-function buildWhere(stage?: string, q?: string): Prisma.LeadWhereInput {
-  const where: Prisma.LeadWhereInput = {};
-  if (stage) where.stage = stage as any;
-  if (q) where.OR = [
-    { businessName: { contains: q, mode: "insensitive" } },
-    { canonicalDomain: { contains: q, mode: "insensitive" } },
-    { city: { contains: q, mode: "insensitive" } },
-  ];
-  return where;
-}
 
 export const POST = ownerRoute(async (req) => {
   const b = schema.parse(await req.json());
 
-  const where: Prisma.LeadWhereInput = b.leadIds?.length ? { id: { in: b.leadIds } } : buildWhere(b.stage, b.q);
+  const where: Prisma.LeadWhereInput = b.leadIds?.length
+    ? { id: { in: b.leadIds } }
+    : buildLeadWhere({ stage: b.stage, q: b.q, campaign: b.campaign, qualification: b.qualification, hasContact: b.hasContact });
   const leads = await prisma.lead.findMany({ where, select: { id: true }, take: CAP });
   if (leads.length === 0) return NextResponse.json({ ok: true, queued: 0 });
 

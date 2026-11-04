@@ -6,7 +6,11 @@ import { MailCheck, Search, PenLine } from "lucide-react";
 
 // Runs an action across EVERY lead matching the current filter (not just the
 // page). The worker paces the jobs and each one still reserves budget.
-export function BulkBar({ matchCount, stage, q }: { matchCount: number; stage?: string; q?: string }) {
+export function BulkBar({
+  matchCount, stage, q, campaign, qualification, hasContact,
+}: {
+  matchCount: number; stage?: string; q?: string; campaign?: string; qualification?: string; hasContact?: "yes" | "no";
+}) {
   const router = useRouter();
   const [busy, setBusy] = React.useState("");
   const [msg, setMsg] = React.useState("");
@@ -19,7 +23,7 @@ export function BulkBar({ matchCount, stage, q }: { matchCount: number; stage?: 
     const res = await fetch("/api/leads/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, stage: stage || undefined, q: q || undefined }),
+      body: JSON.stringify({ action, stage: stage || undefined, q: q || undefined, campaign: campaign || undefined, qualification: qualification || undefined, hasContact: hasContact || undefined }),
     });
     const data = await res.json();
     setBusy("");
