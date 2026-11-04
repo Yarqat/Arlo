@@ -27,6 +27,10 @@
   --info-soft: #e0f2fe;
   --ring: #3b82f6;
   --radius: 0.625rem;
+  /* Chart categorical palette — validated CVD-safe for the light surface. */
+  --chart-1: #2563eb;
+  --chart-2: #d97706;
+  --chart-3: #0d9488;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -52,6 +56,9 @@
     --info: #38bdf8;
     --info-soft: #082f49;
     --ring: #60a5fa;
+    --chart-1: #3b82f6;
+    --chart-2: #d97706;
+    --chart-3: #0d9488;
   }
 }
 :root[data-theme="dark"] {
@@ -76,6 +83,9 @@
   --info: #38bdf8;
   --info-soft: #082f49;
   --ring: #60a5fa;
+  --chart-1: #3b82f6;
+  --chart-2: #d97706;
+  --chart-3: #0d9488;
 }
 
 @theme inline {

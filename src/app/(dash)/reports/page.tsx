@@ -5,6 +5,7 @@ import { monthKey, relativeTime } from "@/lib/time";
 import { PageHeader, Stat } from "@/components/ui/misc";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, THead, TBody, TR, TH, TD } from "@/components/ui/table";
+import { Funnel, Donut, BarList, Meter } from "@/components/ui/charts";
 
 export const dynamic = "force-dynamic";
 
@@ -117,24 +118,63 @@ export default async function ReportsPage() {
     <div className="space-y-6">
       <PageHeader title="Reports" description={`Definitions are explicit. Spend figures cover ${month} (${tz}).`} />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <Stat label="Leads discovered" value={leadsDiscovered} sub="unique businesses imported" />
-        <Stat label="Duplicates rejected" value={duplicatesRejected} />
-        <Stat label="Qualified" value={qualified} />
-        <Stat label="Contacts (public email)" value={withEmail} />
-        <Stat label="Verified deliverable" value={verified} />
-        <Stat label="Excluded — no email" value={excludedByVerify} />
-        <Stat label="Drafts created" value={drafts} />
-        <Stat label="Scheduled to send" value={scheduled} />
-        <Stat label="Accepted by provider" value={accepted} sub="SMTP 250 / API id — not inbox delivery" />
-        <Stat label="Confirmed delivered" value={delivered} sub="only via provider events" />
-        <Stat label="Hard bounces" value={hardBounces} />
-        <Stat label="Temp failures" value={tempFailures} />
+      {/* Headline KPIs */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <Stat label="Leads discovered" value={leadsDiscovered} />
         <Stat label="Replies (human)" value={replies} />
-        <Stat label="Link clicks" value={totalClicks} sub={`${clickedMessages} email${clickedMessages === 1 ? "" : "s"} clicked`} />
         <Stat label="Interested" value={interested} />
-        <Stat label="Unsubscribes" value={unsubscribes} />
         <Stat label="Meetings booked" value={meetings} />
+        <Stat label="Link clicks" value={totalClicks} sub={`${clickedMessages} clicked`} />
+        <Stat label="Reply rate" value={rate(replies, accepted)} />
+      </div>
+
+      {/* Pipeline funnel + spend / health */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Pipeline funnel</CardTitle>
+            <CardDescription>How many leads make it through each stage. The % is conversion from the stage above.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Funnel
+              steps={[
+                { label: "Discovered", value: leadsDiscovered },
+                { label: "Qualified", value: qualified },
+                { label: "Has contact", value: withEmail },
+                { label: "Verified", value: verified },
+                { label: "Accepted", value: accepted, hint: "Accepted by the mail provider — not inbox delivery" },
+                { label: "Delivered", value: delivered, hint: "Confirmed via provider events only" },
+                { label: "Replied", value: replies },
+                { label: "Interested", value: interested },
+                { label: "Meetings", value: meetings },
+              ]}
+            />
+          </CardContent>
+        </Card>
+        <div className="grid gap-4">
+          <Card>
+            <CardHeader><CardTitle>Spend this month</CardTitle></CardHeader>
+            <CardContent>
+              <Donut
+                centerLabel={`$${(aiSpend + verifySpend + emailSpend).toFixed(2)} total`}
+                data={[
+                  { label: "AI", value: aiSpend },
+                  { label: "Verification", value: verifySpend },
+                  { label: "Email", value: emailSpend },
+                ]}
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Hard-bounce rate</CardTitle></CardHeader>
+            <CardContent>
+              <Meter value={bounceRate} threshold={3} />
+              <p className="mt-3 text-xs text-muted">
+                {bounceHealthy ? "Healthy — under the 3% line that gets senders suspended." : "⚠ Above 3% — turn on verification and slow sending to protect your domain."}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Card>
@@ -160,12 +200,6 @@ export default async function ReportsPage() {
           </Table>
         </CardContent>
       </Card>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label="AI spend (month)" value={`$${aiSpend.toFixed(2)}`} sub={`${byKind("AI")?._sum.requests ?? 0} requests`} />
-        <Stat label="Verification spend" value={`$${verifySpend.toFixed(2)}`} sub={`${byKind("VERIFICATION")?._sum.count ?? 0} checks`} />
-        <Stat label="Email send spend" value={`$${emailSpend.toFixed(2)}`} sub={`${byKind("EMAIL")?._sum.count ?? 0} sends`} />
-      </div>
 
       <Card>
         <CardHeader>
@@ -231,16 +265,19 @@ export default async function ReportsPage() {
           {catRows.length === 0 ? (
             <p className="text-sm text-muted">No contacted leads yet.</p>
           ) : (
-            <Table>
-              <THead>
-                <TR><TH>Category</TH><TH>Contacted</TH><TH>Replied</TH><TH>Reply rate</TH></TR>
-              </THead>
-              <TBody>
-                {catRows.map((c) => (
-                  <TR key={c.category}><TD>{c.category}</TD><TD className="tabular-nums">{c.contacted}</TD><TD className="tabular-nums">{c.replied}</TD><TD className="tabular-nums">{rate(c.replied, c.contacted)}</TD></TR>
-                ))}
-              </TBody>
-            </Table>
+            <div className="space-y-5">
+              <BarList rows={catRows.map((c) => ({ label: c.category, value: c.contacted, sub: `${rate(c.replied, c.contacted)} reply` }))} />
+              <Table>
+                <THead>
+                  <TR><TH>Category</TH><TH>Contacted</TH><TH>Replied</TH><TH>Reply rate</TH></TR>
+                </THead>
+                <TBody>
+                  {catRows.map((c) => (
+                    <TR key={c.category}><TD>{c.category}</TD><TD className="tabular-nums">{c.contacted}</TD><TD className="tabular-nums">{c.replied}</TD><TD className="tabular-nums">{rate(c.replied, c.contacted)}</TD></TR>
+                  ))}
+                </TBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

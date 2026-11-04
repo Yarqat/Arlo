@@ -3,6 +3,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
 import { cn } from "@/lib/cn";
+import { ThemeToggle } from "./theme-toggle";
+import { BrandLockup } from "./brand";
 import {
   LayoutDashboard, Sparkles, Users, Megaphone, Inbox as InboxIcon,
   BarChart3, Settings as SettingsIcon, LogOut, Menu, X, Search, Bell,
@@ -42,9 +44,8 @@ export function TopNav({ ownerName, paused }: { ownerName: string; paused: boole
     <header className="sticky top-0 z-30 border-b border-border bg-surface/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:px-8">
         {/* logo */}
-        <Link href="/" className="flex shrink-0 items-center gap-2">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-base font-bold text-primary-fg">A</span>
-          <span className="hidden text-base font-semibold tracking-tight sm:block">Arlo</span>
+        <Link href="/" className="flex shrink-0 items-center">
+          <BrandLockup />
         </Link>
 
         {/* desktop pill nav */}
@@ -73,6 +74,8 @@ export function TopNav({ ownerName, paused }: { ownerName: string; paused: boole
           </form>
 
           {paused && <span className="hidden items-center gap-1 rounded-full bg-danger-soft px-3 py-1.5 text-xs font-semibold text-danger sm:inline-flex">● Paused</span>}
+
+          <ThemeToggle />
 
           <Link href="/inbox" className="relative flex size-10 items-center justify-center rounded-full border border-border text-muted transition-colors hover:bg-surface-2 hover:text-foreground" title="Inbox">
             <Bell className="size-4" />
