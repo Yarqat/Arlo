@@ -139,11 +139,8 @@ export default async function ReportsPage() {
             <Funnel
               steps={[
                 { label: "Discovered", value: leadsDiscovered },
-                { label: "Qualified", value: qualified },
-                { label: "Has contact", value: withEmail },
-                { label: "Verified", value: verified },
-                { label: "Accepted", value: accepted, hint: "Accepted by the mail provider — not inbox delivery" },
-                { label: "Delivered", value: delivered, hint: "Confirmed via provider events only" },
+                { label: "Has contact", value: Math.min(withEmail, leadsDiscovered) },
+                { label: "Sent", value: accepted, hint: "Accepted by the mail provider — not inbox delivery" },
                 { label: "Replied", value: replies },
                 { label: "Interested", value: interested },
                 { label: "Meetings", value: meetings },

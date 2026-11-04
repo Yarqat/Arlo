@@ -14,7 +14,7 @@ The core idea: **the AI proposes, deterministic code enforces.** Suppression, bu
 
 </div>
 
-> **Note on screenshots:** the images below show the real Arlo UI populated with **illustrative sample data** so you can see how it looks in use. A fresh install starts empty.
+> **Note on screenshots:** these are real captures of the running app. Contact email addresses are masked and message bodies blurred to protect third parties; aggregate numbers and the interface are genuine. A fresh install starts empty.
 
 ---
 
@@ -32,22 +32,22 @@ Real screenshots of the live app: a guided setup checklist, plain-language setti
 ![New campaign — Leads-hunt or Job-search mode](docs/screenshots/ui-campaign-new.png)
 
 ### Overview — your pipeline at a glance
-![Arlo overview dashboard](docs/screenshots/overview.svg)
+![Arlo overview dashboard](docs/screenshots/overview.png)
 
 ### Arlo — talk or type, same rules either way
-![Arlo voice assistant](docs/screenshots/assistant.svg)
+![Arlo voice assistant](docs/screenshots/assistant.png)
 
 ### Leads — one business = one lead, deduped by domain
-![Leads table](docs/screenshots/leads.svg)
+![Leads table](docs/screenshots/leads.png)
 
 ### Campaigns — discover → research → verify → draft → approve → send
-![Campaign detail](docs/screenshots/campaign.svg)
+![Campaign detail](docs/screenshots/campaigns.png)
 
 ### Inbox — replies, bounces and opt-outs, each in its own view
-![Inbox](docs/screenshots/inbox.svg)
+![Inbox](docs/screenshots/inbox.png)
 
 ### Reports — honest metrics, explicitly defined
-![Reports](docs/screenshots/reports.svg)
+![Reports](docs/screenshots/reports.png)
 
 ---
 

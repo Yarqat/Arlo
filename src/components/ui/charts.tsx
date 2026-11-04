@@ -22,7 +22,11 @@ export function Funnel({ steps }: { steps: { label: string; value: number; hint?
     <div className="space-y-2">
       {steps.map((s, i) => {
         const w = Math.max((s.value / top) * 100, s.value > 0 ? 3 : 0);
-        const conv = i === 0 ? null : (s.value / Math.max(steps[i - 1].value, 1)) * 100;
+        // Conversion from the stage above — only meaningful when this stage is a
+        // subset of the previous one (value ≤ previous). Otherwise omit it rather
+        // than show a misleading >100% figure.
+        const prev = i === 0 ? 0 : steps[i - 1].value;
+        const conv = i === 0 || prev <= 0 || s.value > prev ? null : (s.value / prev) * 100;
         return (
           <div key={s.label} className="grid grid-cols-[7.5rem_1fr_auto] items-center gap-3 sm:grid-cols-[9rem_1fr_auto]">
             <span className="truncate text-xs text-muted" title={s.label}>{s.label}</span>
