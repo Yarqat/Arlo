@@ -213,9 +213,11 @@ export function BriefEditor() {
               <Field label="Language"><Input value={brief.language} onChange={setStr("language")} /></Field>
               <Field label="Services to offer (comma separated)"><Input value={raw.servicesOffered ?? ""} onChange={setRawField("servicesOffered")} /></Field>
             </div>
-            <Field label="Your offer — what every email pitches">
-              <Textarea value={brief.offer} onChange={setStr("offer")} rows={2} placeholder="e.g. A faster, modern website with an online enquiry/quote form so more customers get in touch. Open by asking who currently looks after their website." />
-            </Field>
+            {mode !== "JOB_SEARCH" && (
+              <Field label="Your offer — what every email pitches">
+                <Textarea value={brief.offer} onChange={setStr("offer")} rows={2} placeholder="e.g. A faster, modern website with an online enquiry/quote form so more customers get in touch. Open by asking who currently looks after their website." />
+              </Field>
+            )}
             <Field label="Positive qualification criteria"><Textarea value={brief.positiveCriteria} onChange={setStr("positiveCriteria")} rows={2} /></Field>
             <Field label="Exclusions"><Textarea value={brief.exclusions} onChange={setStr("exclusions")} rows={2} /></Field>
             <div className="grid gap-4 sm:grid-cols-2">

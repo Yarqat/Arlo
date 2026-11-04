@@ -56,9 +56,12 @@ export async function ThreadConversation({ threadId }: { threadId: string }) {
           return (
             <div key={m.id} className={`rounded-2xl border border-border bg-surface p-4 ${outbound ? "border-l-2 border-l-primary" : ""}`}>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="flex items-center gap-2">
+                <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                   <Badge tone={outbound ? "primary" : "info"}>{outbound ? "sent" : "received"}</Badge>
-                  <span className="font-medium">{outbound ? m.fromAddr || "you" : m.fromAddr}</span>
+                  <span className="font-medium">{m.fromAddr || (outbound ? "you" : "—")}</span>
+                  {m.toAddrs.length > 0 && (
+                    <span className="text-muted-2">→ <span className="font-medium text-foreground">{m.toAddrs.join(", ")}</span></span>
+                  )}
                   {m.classification !== "NONE" && <Badge tone={replyTone(m.classification)}>{replyLabel(m.classification)}</Badge>}
                   {m.isAutoReply && <Badge tone="neutral">auto</Badge>}
                 </span>
