@@ -31,6 +31,26 @@ const UNSUB_WHERE: Prisma.ThreadWhereInput = {
 // bounce/DSN (those get their own Bounces tab).
 const REPLIES_WHERE: Prisma.ThreadWhereInput = { messages: { some: { direction: "INBOUND", classification: { not: "BOUNCE" } } } };
 
+// Soft avatar colours, picked deterministically from the sender name.
+const AV = [
+  "bg-info-soft text-info",
+  "bg-success-soft text-success",
+  "bg-warning-soft text-warning",
+  "bg-accent-soft text-primary",
+  "bg-danger-soft text-danger",
+];
+function avatarClass(s: string) {
+  let h = 0;
+  for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return AV[h % AV.length];
+}
+function labelTone(l: string): "neutral" | "success" | "warning" | "danger" | "info" {
+  if (l === "interested") return "success";
+  if (l === "bounce" || l === "unsubscribe") return "danger";
+  if (l === "out_of_office" || l === "meeting") return "info";
+  return "neutral";
+}
+
 const FILTERS: Record<string, any> = {
   all: {},
   replies: REPLIES_WHERE,
@@ -67,7 +87,10 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Inbox" description="Unified conversations across your connected mailboxes." />
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
+        <p className="text-sm text-muted">Every conversation across your mailboxes — matched to its lead and campaign.</p>
+      </div>
       <InboxTabs active={tab} attention={counts[0]} interested={counts[1]} sent={counts[2]} replies={counts[3]} unsubscribe={counts[4]} />
 
       {threads.length === 0 ? (
@@ -80,23 +103,41 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
         <Card className="divide-y divide-border p-0">
           {threads.map((t) => {
             const last = t.messages[0];
+            const who = t.lead ? t.lead.businessName : t.participants[0] || "(unknown)";
+            const initial = who.trim().charAt(0).toUpperCase() || "?";
+            const inbound = last?.direction === "INBOUND";
             return (
-              <Link key={t.id} href={`/inbox/${t.id}`} className="block px-4 py-3 hover:bg-surface-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate text-sm font-medium">{t.subject || "(no subject)"}</p>
+              <Link
+                key={t.id}
+                href={`/inbox/${t.id}`}
+                className="group relative flex items-start gap-3.5 px-4 py-3.5 transition-colors hover:bg-surface-2"
+              >
+                {/* attention accent */}
+                {t.needsAttention && <span className="absolute inset-y-0 left-0 w-1 rounded-r bg-warning" aria-hidden />}
+                <span className={`mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${avatarClass(who)}`}>
+                  {initial}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+                      <span className="truncate">{who}</span>
+                      {inbound && <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">reply</span>}
+                    </p>
+                    <span className="shrink-0 text-xs text-muted-2">{relativeTime(t.lastMessageAt)}</span>
+                  </div>
+                  <p className="mt-0.5 truncate text-sm text-foreground/90">{t.subject || "(no subject)"}</p>
+                  <p className="mt-0.5 truncate text-xs text-muted">
+                    {last ? last.snippet || last.bodyText.slice(0, 140) : "No messages yet."}
+                  </p>
+                  {(t.needsAttention || t.labels.length > 0 || t.campaign) && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                       {t.needsAttention && <Badge tone="warning">Needs attention</Badge>}
                       {t.labels.map((l) => (
-                        <Badge key={l} tone="neutral">{l.replace(/_/g, " ")}</Badge>
+                        <Badge key={l} tone={labelTone(l)}>{l.replace(/_/g, " ")}</Badge>
                       ))}
+                      {t.campaign && <span className="text-[11px] text-muted-2">· {t.campaign.name}</span>}
                     </div>
-                    <p className="mt-0.5 truncate text-xs text-muted">
-                      {t.lead ? t.lead.businessName : t.participants.join(", ")}
-                      {last ? ` — ${last.snippet || last.bodyText.slice(0, 120)}` : ""}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-xs text-muted-2">{relativeTime(t.lastMessageAt)}</span>
+                  )}
                 </div>
               </Link>
             );
