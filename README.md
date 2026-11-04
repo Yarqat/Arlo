@@ -20,6 +20,17 @@ The core idea: **the AI proposes, deterministic code enforces.** Suppression, bu
 
 ## Screenshots
 
+### The interface — light & dark, built to be easy
+Real screenshots of the live app: a guided setup checklist, plain-language settings, and a light/dark/system theme toggle.
+
+<p align="center">
+  <img src="docs/screenshots/ui-settings-light.png" width="49%" alt="Settings in light mode" />
+  <img src="docs/screenshots/ui-settings-dark.png" width="49%" alt="Settings in dark mode" />
+</p>
+
+### New campaign — pick a mode first
+![New campaign — Leads-hunt or Job-search mode](docs/screenshots/ui-campaign-new.png)
+
 ### Overview — your pipeline at a glance
 ![Arlo overview dashboard](docs/screenshots/overview.svg)
 
