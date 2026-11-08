@@ -8,7 +8,7 @@ Arlo is a single-owner **AI sales CRM + cold-outreach assistant** you run on you
 
 The core idea: **the AI proposes, deterministic code enforces.** Suppression, budgets, idempotency, verification and send-eligibility are real database rows and hard checks — not prompt promises. Arlo will not invent a price, a testimonial, a guarantee or a result, and it treats every scraped page and inbound email as untrusted data.
 
-[Features](#features) · [Screenshots](#screenshots) · [Quick start](#quick-start) · [Voice](#arlo-voice) · [Providers](#providers) · [Safety](#safety--guardrails) · [Architecture](#architecture)
+[Features](#features) · [Screenshots](#screenshots) · [Quick start](#quick-start) · [Installation](INSTALLATION.md) · [Voice](#arlo-voice) · [Providers](#providers) · [Safety](#safety--guardrails) · [Architecture](#architecture)
 
 `Next.js 16` · `React 19` · `TypeScript` · `Tailwind 4` · `Prisma + PostgreSQL` · `BullMQ + Redis` · `MIT`
 
