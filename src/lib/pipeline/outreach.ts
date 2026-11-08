@@ -15,10 +15,16 @@ import { recordProviderAlert, isProviderCreditError } from "@/lib/provider-alert
 import type { Contact } from "@prisma/client";
 
 // Patterns that must never appear in generated outreach (prices, invented claims).
-const FORBIDDEN = [
-  /[$£€]\s?\d/, /\b\d+\s?(usd|gbp|eur|dollars|pounds)\b/i,
-  /\bdiscount\b/i, /\bguarantee/i, /\b\d+%\s?(off|discount)\b/i,
-  /\bfree\b.*\b(offer|trial|month)\b/i, /\bmoney[- ]back\b/i,
+// Each carries a plain-English label so the owner — and the activity log — see
+// *why* a draft was held, not a raw regex.
+const FORBIDDEN: { re: RegExp; label: string }[] = [
+  { re: /[$£€]\s?\d/, label: "a price or money amount (spam filters flag these in cold email)" },
+  { re: /\b\d+\s?(usd|gbp|eur|dollars|pounds)\b/i, label: "a money amount (spam filters flag these in cold email)" },
+  { re: /\bdiscount\b/i, label: "the word “discount” (a spam trigger)" },
+  { re: /\bguarantee/i, label: "“guarantee” (a spam trigger)" },
+  { re: /\b\d+%\s?(off|discount)\b/i, label: "a percentage discount (a spam trigger)" },
+  { re: /\bfree\b.*\b(offer|trial|month)\b/i, label: "a “free offer/trial” (a spam trigger)" },
+  { re: /\bmoney[- ]back\b/i, label: "“money-back” (a spam trigger)" },
 ];
 
 // The model occasionally leaks its own reasoning, a refusal, or an apology about
@@ -28,24 +34,24 @@ const FORBIDDEN = [
 // to a reply, so they must NEVER send. Caught here, they fail scrub → the worker
 // won't auto-send them, the draft is flagged for review, and sendMessage blocks
 // them as a last line of defence.
-const META_LEAK = [
-  /\bI (can'?t|cannot|won'?t|will not|am not able to|am unable to) (write|produce|generate|create|help)\b/i,
-  /\bas an? (AI|language model|assistant)\b/i,
-  /\b(the )?research notes?\b/i,
-  /\bbased on (the )?(research|notes|provided|the above|what)\b/i,
-  /\b(correction to|according to) our records\b/i,
-  /\bwe may have the wrong (business|company|contact|recipient)\b/i,
-  /\bplease disregard\b/i,
-  /\bI (haven'?t|have not|don'?t have|do not have) (reviewed|seen|looked|enough|any)\b/i,
-  /\bwithout having (seen|reviewed|looked)\b/i,
-  /\bhere'?s (a|the|your) (draft|email|outreach)\b/i,
-  /\bnot (in |based in )?the (uk|us|usa)\b/i,
+const META_LEAK: { re: RegExp; label: string }[] = [
+  { re: /\bI (can'?t|cannot|won'?t|will not|am not able to|am unable to) (write|produce|generate|create|help)\b/i, label: "AI “I can’t write…” text that leaked into the draft" },
+  { re: /\bas an? (AI|language model|assistant)\b/i, label: "“as an AI/assistant” text that leaked into the draft" },
+  { re: /\b(the )?research notes?\b/i, label: "“research notes” — the model’s own notes leaked into the draft" },
+  { re: /\bbased on (the )?(research|notes|provided|the above|what)\b/i, label: "“based on the research/notes” — model reasoning leaked in" },
+  { re: /\b(correction to|according to) our records\b/i, label: "a fake “our records” reference" },
+  { re: /\bwe may have the wrong (business|company|contact|recipient)\b/i, label: "a “we may have the wrong recipient” apology" },
+  { re: /\bplease disregard\b/i, label: "a “please disregard” retraction" },
+  { re: /\bI (haven'?t|have not|don'?t have|do not have) (reviewed|seen|looked|enough|any)\b/i, label: "an “I haven’t reviewed…” admission that leaked in" },
+  { re: /\bwithout having (seen|reviewed|looked)\b/i, label: "a “without having seen…” admission that leaked in" },
+  { re: /\bhere'?s (a|the|your) (draft|email|outreach)\b/i, label: "a “here’s your draft” preamble that leaked in" },
+  { re: /\bnot (in |based in )?the (uk|us|usa)\b/i, label: "a “not in the UK/US” aside that leaked in" },
 ];
 
 export function scrubOutreach(text: string): { clean: boolean; reasons: string[] } {
   const reasons: string[] = [];
-  for (const re of FORBIDDEN) if (re.test(text)) reasons.push(re.source);
-  for (const re of META_LEAK) if (re.test(text)) reasons.push("meta/refusal leak: " + re.source);
+  for (const { re, label } of FORBIDDEN) if (re.test(text)) reasons.push(label);
+  for (const { re, label } of META_LEAK) if (re.test(text)) reasons.push(label);
   return { clean: reasons.length === 0, reasons };
 }
 
@@ -225,6 +231,7 @@ export async function draftOutreach(leadId: string, opts: { actor?: string } = {
         `Then say, in ONE plain sentence tied to what you just observed, the single most relevant thing ${profile.companyName} could do for them. Finish with ONE easy yes/no question.`,
         `BANNED — do not use these generic agency phrases or any close variant: "modern, fast, mobile-friendly websites", "professional redesigns", "local SEO improvements", "help you attract more customers", "more enquiries", "take your business to the next level", "in today's digital world". Name at most ONE service, and only if it directly fits your observation.`,
         `Sell the OUTCOME, never the tool: do NOT name the platform, CMS, framework or technology the work would be built on (e.g. WordPress, Webflow, Shopify, Wix, React) — the client cares about results, not the stack.`,
+        `NEVER mention money, prices or figures (no "$300", "£50", "20% off"), and never use the words discount, guarantee, free offer/trial, or money-back — these trip spam filters and read as a sales pitch. Talk about the outcome, not the cost.`,
         `The reader is NON-TECHNICAL. Use plain, everyday business language and no jargon — avoid words like "custom-built", "custom-coded", "CMS", "framework", "backend", "responsive", "integration", "SEO". Describe only outcomes they'd instantly recognise (e.g. more booked customers, fewer missed enquiries, a site that works well on a phone).`,
         `Do NOT invent or guess the recipient's name, title or gender. Use the recipient name ONLY if one is explicitly provided; otherwise open directly or with a neutral "Hi there," — never "Dear <name>" or "Hi <name>" with a name you were not given.`,
         `NEVER apologise, hedge, or question whether they are the right recipient. Do NOT write "I haven't reviewed", "I may have the wrong business", "please disregard", "based on the research", or mention your notes/records at all. Do NOT output any meta-commentary or refusal. If something seems off, just write the best confident email you can from what you have. Sound like a founder sure of the work.`,

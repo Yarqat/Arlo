@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { ownerRoute } from "@/lib/api";
 import { enqueue } from "@/lib/queue";
 import { audit } from "@/lib/audit";
+import { scrubOutreach } from "@/lib/pipeline/outreach";
 
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("send"), id: z.string() }),
@@ -19,6 +20,16 @@ export const POST = ownerRoute(async (req) => {
 
   if (b.action === "send") {
     if (!["DRAFT", "QUEUED"].includes(msg.state)) return NextResponse.json({ error: `Cannot send a ${msg.state} message` }, { status: 400 });
+    // Check the content HERE, at approval, so the owner is told exactly what to
+    // fix — rather than the worker silently bouncing it back to DRAFT at send
+    // time (which made Approve look like it did nothing, and looped forever).
+    const scrub = scrubOutreach(msg.subject + "\n" + msg.bodyText);
+    if (!scrub.clean) {
+      return NextResponse.json({
+        error: `This email can't go out as written — it contains ${scrub.reasons.join("; and ")}. Edit it out above, then approve again.`,
+        kind: "content",
+      }, { status: 400 });
+    }
     await prisma.message.update({ where: { id: b.id }, data: { state: "QUEUED" } });
     await enqueue("outreach", "send", { action: "send", messageId: b.id, actor: "owner" });
     await audit("owner", "approve_send", "Message", b.id, "Owner approved send");
