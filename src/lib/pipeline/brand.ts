@@ -51,7 +51,7 @@ export async function learnBrandFromSite(rawUrl: string): Promise<LearnedBrand> 
 
   const home = await fetchPage(url, { timeoutMs: 25000 });
   if (!home.markdown || home.markdown.length < 40) {
-    throw new Error("Could not read any content from that website. Check the address, or enable Firecrawl for JavaScript-heavy sites.");
+    throw new Error("Could not read any content from that website. Check the address, or install a browser (Chromium) so Arlo can render JavaScript-heavy sites.");
   }
   const pages: { url: string; text: string }[] = [{ url: home.url, text: home.markdown }];
 

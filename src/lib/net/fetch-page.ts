@@ -1,10 +1,10 @@
 // A single page-fetch layer used by research and brand-learning.
 //
-// If Firecrawl is configured (FIRECRAWL_API_KEY for the hosted API, or
-// FIRECRAWL_BASE_URL for a self-hosted instance) pages are fetched with full
-// JavaScript rendering and returned as clean, LLM-ready markdown (nav/ads
-// stripped). Otherwise it falls back to the built-in SSRF-safe fetch plus a
-// dependency-free HTML→markdown cleaner. Either way the caller gets markdown.
+// Pages are fetched with full JavaScript rendering through the built-in headless
+// Chromium (net/render) whenever a browser is present on the host, and returned
+// as clean, LLM-ready markdown (nav/ads stripped). Without a browser it falls
+// back to the built-in SSRF-safe fetch plus a dependency-free HTML→markdown
+// cleaner. Either way the caller gets markdown.
 import { safeFetch } from "./safe-fetch";
 import { renderPage, jsRenderAvailable } from "./render";
 import { log } from "@/lib/log";
@@ -15,63 +15,17 @@ export interface FetchedPage {
   markdown: string;
   /** Raw (or JS-rendered) HTML when available — used for link/email harvesting. */
   html: string;
-  via: "render" | "firecrawl" | "fetch";
-}
-
-function firecrawlBase(): string {
-  return (process.env.FIRECRAWL_BASE_URL || "https://api.firecrawl.dev").replace(/\/+$/, "");
-}
-
-/** Firecrawl is on when either a hosted API key or a self-host base URL is set. */
-export function firecrawlEnabled(): boolean {
-  return !!(process.env.FIRECRAWL_API_KEY || process.env.FIRECRAWL_BASE_URL);
+  via: "render" | "fetch";
 }
 
 interface FetchOpts {
   maxBytes?: number;
   timeoutMs?: number;
-  onlyMainContent?: boolean;
-}
-
-async function firecrawlScrape(url: string, opts: FetchOpts): Promise<FetchedPage> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 25000);
-  try {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (process.env.FIRECRAWL_API_KEY) headers.Authorization = `Bearer ${process.env.FIRECRAWL_API_KEY}`;
-    const res = await fetch(`${firecrawlBase()}/v2/scrape`, {
-      method: "POST",
-      headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        url,
-        formats: ["markdown", "html"],
-        onlyMainContent: opts.onlyMainContent ?? true,
-      }),
-    });
-    const json = (await res.json()) as {
-      success?: boolean;
-      error?: string;
-      data?: { markdown?: string; html?: string; metadata?: { statusCode?: number; sourceURL?: string } };
-    };
-    if (!res.ok || json.success === false || !json.data) {
-      throw new Error(json.error || `Firecrawl ${res.status}`);
-    }
-    return {
-      url: json.data.metadata?.sourceURL || url,
-      status: json.data.metadata?.statusCode ?? 200,
-      markdown: (json.data.markdown || "").trim(),
-      html: json.data.html || "",
-      via: "firecrawl",
-    };
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 export async function fetchPage(url: string, opts: FetchOpts = {}): Promise<FetchedPage> {
   // 1. Built-in JavaScript rendering (our own headless Chromium) — the default
-  //    whenever a browser is present on the host. No external service needed.
+  //    whenever a browser is present on the host. No external service.
   if (jsRenderAvailable()) {
     try {
       const r = await renderPage(url, { timeoutMs: opts.timeoutMs ?? 20000 });
@@ -82,15 +36,7 @@ export async function fetchPage(url: string, opts: FetchOpts = {}): Promise<Fetc
       log.warn("js render failed, falling back", { url, err: (e as Error).message });
     }
   }
-  // 2. Firecrawl — only if explicitly configured (an alternative, not required).
-  if (firecrawlEnabled()) {
-    try {
-      return await firecrawlScrape(url, opts);
-    } catch (e) {
-      log.warn("firecrawl scrape failed, falling back to fetch", { url, err: (e as Error).message });
-    }
-  }
-  // 3. Plain SSRF-safe fetch + local HTML→markdown (always available).
+  // 2. Plain SSRF-safe fetch + local HTML→markdown (always available).
   const res = await safeFetch(url, { maxBytes: opts.maxBytes ?? 1_500_000, timeoutMs: opts.timeoutMs ?? 15000 });
   return { url: res.url, status: res.status, markdown: htmlToMarkdown(res.body), html: res.body, via: "fetch" };
 }
@@ -98,7 +44,7 @@ export async function fetchPage(url: string, opts: FetchOpts = {}): Promise<Fetc
 // --- Dependency-free HTML → markdown-ish text --------------------------------
 // Not a full markdown renderer — it strips boilerplate (scripts, styles, nav,
 // footers), keeps headings/lists/links/paragraph structure, decodes entities
-// and collapses whitespace. Good enough to feed an LLM when Firecrawl is off.
+// and collapses whitespace. Used when the built-in renderer isn't available.
 const ENTITIES: Record<string, string> = {
   amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", mdash: "—", ndash: "–",
   hellip: "…", rsquo: "’", lsquo: "‘", rdquo: "”", ldquo: "“", copy: "©", reg: "®", trade: "™",

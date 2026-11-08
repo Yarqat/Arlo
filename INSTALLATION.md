@@ -113,8 +113,7 @@ which chromium || which chromium-browser     # confirm one exists
   built-in HTML→markdown cleaner (works, but can't execute JavaScript).
 
 > No Chromium on the box is fine — Arlo still runs, it just can't render JS-only
-> pages. You can also point Arlo at [Firecrawl](https://www.firecrawl.dev/)
-> instead (hosted or self-hosted) via `FIRECRAWL_API_KEY` / `FIRECRAWL_BASE_URL`.
+> pages (it falls back to a plain fetch + built-in HTML→markdown cleaner).
 
 ---
 
@@ -147,8 +146,7 @@ sudo -u arlo nano .env
 | `TZ` | `Asia/Karachi` | reporting timezone |
 | `PORT` / `HOSTNAME` | `3430` / `127.0.0.1` | where the web app listens |
 
-**Rendering (optional)** — `RENDER_JS`, `CHROMIUM_PATH`, `FIRECRAWL_API_KEY`,
-`FIRECRAWL_BASE_URL` (see step 5).
+**Rendering (optional)** — `RENDER_JS`, `CHROMIUM_PATH` (see step 5).
 
 **Provider keys (all optional here)** — AI (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`),
 search (`SEARCH_API_KEY`), verifier (`VERIFIER_API_KEY`), voice (`STT_API_KEY` /

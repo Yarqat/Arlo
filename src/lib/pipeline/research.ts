@@ -111,7 +111,7 @@ export async function researchLead(leadId: string): Promise<{ ok: boolean; reaso
       const home = await fetchPage(start, { maxBytes: 1_500_000, timeoutMs: 15000 });
       pages.push({ url: home.url, text: home.markdown });
       rawHtml += home.html;
-      // Link discovery still works off HTML; if Firecrawl returned none, fall back to markdown links.
+      // Link discovery still works off HTML; if the renderer returned none, fall back to markdown links.
       const links = pickLinks(home.html || home.markdown, home.url, maxPages - 1);
       for (const link of links) {
         try {
