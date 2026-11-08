@@ -382,6 +382,16 @@ model Mailbox {
   hourlyLimit   Int      @default(15)
   sendingSchedule Json?  // { days, start, end }
 
+  // Send-as identities: extra From addresses this mailbox may send as (same
+  // verified domain, e.g. via AWS SES). Rotated per lead to spread sending
+  // identity. Shape: [{ email, name }]. Empty = only send as `email` above.
+  senderIdentities Json?
+  // Force every reply to a single monitored address regardless of the From used.
+  // Set to e.g. support@yarqat.com so replies land in this IMAP-monitored inbox
+  // even when outbound rotates across several From addresses. Empty = From is the
+  // reply address.
+  replyTo       String   @default("")
+
   status        MailboxStatus @default(UNCONFIGURED)
   lastSyncAt    DateTime?
   lastError     String   @default("")
@@ -945,4 +955,29 @@ model AssistantNotification {
 
   @@index([read, createdAt])
   @@index([kind, dayKey])
+}
+
+// ---------------------------------------------------------------------------
+// DMARC aggregate reports (Deliverability · Phase 2)
+// ---------------------------------------------------------------------------
+
+// One stored DMARC aggregate (rua) report. `key` = "<orgName>:<reportId>" keeps
+// ingestion idempotent. `rows` holds the per-source records as parsed JSON.
+model DmarcReport {
+  id         String   @id @default(cuid())
+  key        String   @unique
+  reportId   String
+  orgName    String   @default("")
+  domain     String   @default("")
+  dateBegin  DateTime
+  dateEnd    DateTime
+  policyP    String   @default("")
+  totalCount Int      @default(0)
+  passCount  Int      @default(0)
+  rows       Json
+  mailboxId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([domain, dateEnd])
+  @@index([dateEnd])
 }

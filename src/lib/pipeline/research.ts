@@ -4,6 +4,7 @@ import { getProfile, getSettings } from "@/lib/settings";
 import { runAiTask, extractJson } from "@/lib/providers/ai";
 import { reserve } from "@/lib/budget";
 import { safeFetch } from "@/lib/net/safe-fetch";
+import { fetchPage } from "@/lib/net/fetch-page";
 import { changeStage } from "./stage";
 import { audit } from "@/lib/audit";
 import { log } from "@/lib/log";
@@ -60,18 +61,6 @@ function extractSocialLinks(html: string): string[] {
   return [...urls.values()];
 }
 
-function htmlToText(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 6000);
-}
-
 function pickLinks(html: string, base: string, limit: number): string[] {
   const wanted = /(about|service|contact|pricing|book|appointment|events)/i;
   const urls = new Set<string>();
@@ -119,14 +108,15 @@ export async function researchLead(leadId: string): Promise<{ ok: boolean; reaso
     const pages: { url: string; text: string }[] = [];
     let rawHtml = ""; // kept for email enrichment + change detection
     try {
-      const home = await safeFetch(start, { maxBytes: 1_500_000, timeoutMs: 15000 });
-      pages.push({ url: home.url, text: htmlToText(home.body) });
-      rawHtml += home.body;
-      const links = pickLinks(home.body, home.url, maxPages - 1);
+      const home = await fetchPage(start, { maxBytes: 1_500_000, timeoutMs: 15000 });
+      pages.push({ url: home.url, text: home.markdown });
+      rawHtml += home.html;
+      // Link discovery still works off HTML; if Firecrawl returned none, fall back to markdown links.
+      const links = pickLinks(home.html || home.markdown, home.url, maxPages - 1);
       for (const link of links) {
         try {
-          const p = await safeFetch(link, { maxBytes: 1_000_000, timeoutMs: 12000 });
-          if (p.status < 400) { pages.push({ url: p.url, text: htmlToText(p.body) }); rawHtml += p.body; }
+          const p = await fetchPage(link, { maxBytes: 1_000_000, timeoutMs: 12000 });
+          if (p.status < 400) { pages.push({ url: p.url, text: p.markdown }); rawHtml += p.html; }
         } catch (e) {
           log.warn("research page fetch failed", { link, err: (e as Error).message });
         }

@@ -98,6 +98,21 @@ export async function preflight(ctx: Ctx): Promise<PreflightResult> {
     return { ok: false, reason: "Hourly sending limit reached", nextEligibleAt: next };
   }
 
+  // Per-mailbox DAILY limit. This cap was previously not enforced here at all
+  // (only the hourly one was), so a high global budget let a single mailbox send
+  // unbounded volume in a day. The owner sets dailyLimit per mailbox; for a brand
+  // new/cold mailbox, warmupDailyCap() can be used to ramp it, but an established
+  // (warmed) domain just uses its configured dailyLimit.
+  const tzMb = ctx.campaign?.timezone || settings.timezone;
+  const [wy, wmo, wd] = dayKey(tzMb).split("-").map((x) => parseInt(x, 10));
+  const startOfTodayMb = zonedWallToUtc(wy, wmo, wd, 0, 0, tzMb);
+  const sentTodayMb = await prisma.message.count({
+    where: { mailboxId: ctx.mailbox.id, direction: "OUTBOUND", sentAt: { gte: startOfTodayMb }, state: { in: ["ACCEPTED", "SENT", "DELIVERED"] } },
+  });
+  if (sentTodayMb >= ctx.mailbox.dailyLimit) {
+    return { ok: false, reason: `Mailbox daily limit reached (${ctx.mailbox.dailyLimit})`, nextEligibleAt: new Date(startOfTodayMb.getTime() + 24 * 3600_000) };
+  }
+
   // Per-campaign sending caps (optional; null = no campaign-level cap, fall back
   // to the mailbox/global limits above). These let the owner throttle a single
   // campaign independently of the global budget.
@@ -129,4 +144,16 @@ export async function preflight(ctx: Ctx): Promise<PreflightResult> {
 
 export function todayKey(tz: string) {
   return dayKey(tz);
+}
+
+/**
+ * Daily send allowance for a mailbox, ramped up over its first weeks so a cold
+ * domain warms its reputation instead of blasting on day one (the #1 cause of
+ * cold email landing in spam). Starts at 20/day and adds 15/day of age, never
+ * exceeding the mailbox's configured dailyLimit.
+ */
+export function warmupDailyCap(mailbox: { dailyLimit: number; createdAt: Date }): number {
+  const ageDays = Math.max(0, Math.floor((Date.now() - mailbox.createdAt.getTime()) / 86400_000));
+  const ramp = 20 + ageDays * 15;
+  return Math.max(1, Math.min(mailbox.dailyLimit, ramp));
 }

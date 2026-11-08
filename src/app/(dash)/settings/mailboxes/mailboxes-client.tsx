@@ -15,7 +15,20 @@ type MB = {
   id: string; senderName: string; email: string; signature: string; providerType: string;
   dailyLimit: number; hourlyLimit: number; status: string; lastError: string;
   lastSyncAt: string | null; lastTestedAt: string | null; smtp: Cfg; imap: Cfg;
+  replyTo?: string; senderIdentities?: { email: string; name: string }[] | null;
 };
+
+// Parse a "Name <email>" per-line textarea into identity objects.
+function parseIdentities(text: string): { email: string; name: string }[] {
+  return text.split("\n").map((raw) => {
+    const s = raw.trim();
+    if (!s) return null;
+    const m = s.match(/^(.*?)\s*<\s*([^<>\s]+@[^<>\s]+\.[^<>\s]+)\s*>$/);
+    if (m) return { email: m[2].toLowerCase(), name: m[1].trim() };
+    if (/^[^<>\s]+@[^<>\s]+\.[^<>\s]+$/.test(s)) return { email: s.toLowerCase(), name: "" };
+    return null;
+  }).filter((x): x is { email: string; name: string } => !!x);
+}
 
 async function post(body: unknown) {
   const res = await fetch("/api/mailboxes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -112,6 +125,8 @@ function MailboxDialog({ mb, onClose, onSaved }: { mb: MB | null; onClose: () =>
     signature: mb?.signature ?? "",
     dailyLimit: mb?.dailyLimit ?? 50,
     hourlyLimit: mb?.hourlyLimit ?? 15,
+    replyTo: mb?.replyTo ?? "",
+    sendAs: (mb?.senderIdentities ?? []).map((i) => (i.name ? `${i.name} <${i.email}>` : i.email)).join("\n"),
     smtpHost: mb?.smtp?.host ?? "",
     smtpPort: mb?.smtp?.port ?? 587,
     smtpSecure: mb?.smtp?.secure ?? false,
@@ -158,6 +173,8 @@ function MailboxDialog({ mb, onClose, onSaved }: { mb: MB | null; onClose: () =>
       providerType: "smtp",
       dailyLimit: f.dailyLimit,
       hourlyLimit: f.hourlyLimit,
+      replyTo: f.replyTo,
+      senderIdentities: parseIdentities(f.sendAs),
       smtp: { host: f.smtpHost, port: f.smtpPort, secure: f.smtpSecure, user: f.smtpUser, pass: f.smtpPass || undefined },
       // null = explicitly send-only; the API clears any stored IMAP config.
       imap: monitor ? { host: f.imapHost, port: f.imapPort, secure: f.imapSecure, user: f.imapUser, pass: f.imapPass || undefined } : null,
@@ -215,6 +232,22 @@ function MailboxDialog({ mb, onClose, onSaved }: { mb: MB | null; onClose: () =>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Daily limit"><Input type="number" value={f.dailyLimit} onChange={set("dailyLimit")} /></Field>
           <Field label="Hourly limit"><Input type="number" value={f.hourlyLimit} onChange={set("hourlyLimit")} /></Field>
+        </div>
+
+        <div className="space-y-2 rounded-md border border-border p-3">
+          <p className="text-xs font-semibold text-muted">Sending identities (optional)</p>
+          <Field
+            label="Send-as addresses"
+            hint="One per line, e.g. Shah Fahad &lt;shah@yarqat.com&gt;. The From rotates across these (same verified domain, e.g. AWS SES) plus the address above, stable per lead. Leave blank to always send as the address above."
+          >
+            <Textarea value={f.sendAs} onChange={set("sendAs")} rows={3} placeholder={"Shah Fahad <shah@yarqat.com>\nHello Yarqat <hello@yarqat.com>"} />
+          </Field>
+          <Field
+            label="Reply-to address"
+            hint="All replies go here regardless of which From was used. Set this to your one monitored inbox (the IMAP mailbox below). Leave blank to use the address above."
+          >
+            <Input value={f.replyTo} onChange={set("replyTo")} placeholder="support@yarqat.com" />
+          </Field>
         </div>
 
         <div className="space-y-2 rounded-md border border-border p-3">

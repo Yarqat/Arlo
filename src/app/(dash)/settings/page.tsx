@@ -4,7 +4,7 @@ import { Card } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import {
   User, Boxes, PlugZap, Search, MailCheck, Mails, Gauge, ShieldBan, Lock,
-  DatabaseBackup, PenLine, ChevronRight, Bot, Zap, Check, ArrowRight, Palette,
+  DatabaseBackup, PenLine, ChevronRight, Bot, Zap, Check, ArrowRight, Palette, Radar,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +41,7 @@ const GROUPS: {
     tone: "warning",
     items: [
       { href: "/settings/budgets", icon: Gauge, title: "Budgets & limits", desc: "Spend caps, send rates, and sending hours." },
+      { href: "/settings/deliverability", icon: Radar, title: "Deliverability", desc: "Check your domain's SPF, DKIM & DMARC and watch inbox health." },
       { href: "/settings/automation", icon: Zap, title: "Automation & alerts", desc: "Hot-reply alerts, email enrichment, your booking link." },
       { href: "/settings/suppression", icon: ShieldBan, title: "Do-not-contact list", desc: "Permanent opt-outs and hard bounces." },
     ],

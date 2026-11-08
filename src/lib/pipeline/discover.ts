@@ -56,6 +56,30 @@ async function extractPublicEmails(website: string): Promise<string[]> {
   return result.slice(0, 3);
 }
 
+/** Normalise a country name/abbreviation to a comparable key. */
+function normCountry(s?: string): string {
+  const x = (s || "").toLowerCase().replace(/[^a-z]/g, "");
+  if (["us", "usa", "unitedstates", "unitedstatesofamerica", "america"].includes(x)) return "us";
+  if (["uk", "unitedkingdom", "greatbritain", "britain", "gb", "england", "scotland", "wales", "northernireland"].includes(x)) return "uk";
+  if (["uae", "unitedarabemirates", "emirates"].includes(x)) return "ae";
+  return x;
+}
+
+/**
+ * Whether a discovered business belongs in a campaign with these target
+ * countries. Search providers don't strictly honour a country filter, so a UK
+ * campaign can get US/UAE results back; importing those produces confused,
+ * wrong-geography outreach. We reject a business only when its country is known
+ * AND clearly isn't a target — an unknown/blank country is allowed through
+ * (it inherits the campaign's country downstream).
+ */
+function countryAllowed(bizCountry: string | undefined, targets: string[]): boolean {
+  if (!targets || targets.length === 0) return true;
+  const b = normCountry(bizCountry);
+  if (!b) return true;
+  return targets.some((t) => normCountry(t) === b);
+}
+
 export async function discoverForCampaign(
   campaignId: string,
   opts: { limit?: number } = {},
@@ -108,6 +132,13 @@ export async function discoverForCampaign(
             const key = (biz.website || biz.name || "").toLowerCase().trim();
             if (!key || seen.has(key)) continue;
             seen.add(key);
+
+            // Geo guard: drop results that clearly belong to a different country
+            // than the campaign targets (search providers leak cross-border hits).
+            if (!countryAllowed(biz.country, campaign.countries)) {
+              log.info("discover geo-skip", { campaignId, name: biz.name, country: biz.country });
+              continue;
+            }
 
             let r;
             try {

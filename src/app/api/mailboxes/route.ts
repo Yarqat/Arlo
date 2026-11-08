@@ -26,6 +26,10 @@ const schema = z.discriminatedUnion("action", [
     providerType: z.enum(["smtp", "ses"]).default("smtp"),
     dailyLimit: z.coerce.number().int().min(0).default(50),
     hourlyLimit: z.coerce.number().int().min(0).default(15),
+    // Route every reply to one monitored address even when the From rotates.
+    replyTo: z.string().optional(),
+    // Extra From addresses this mailbox may send as (same verified domain).
+    senderIdentities: z.array(z.object({ email: z.string().email(), name: z.string().max(200).optional() })).max(25).optional(),
     smtp: cfg,
     // IMAP is optional: a send-only mailbox is allowed, but then Arlo cannot
     // monitor replies (no reply classification, follow-up auto-pause or inbox).
@@ -93,6 +97,10 @@ export const POST = ownerRoute(async (req) => {
     hourlyLimit: b.hourlyLimit,
     smtpConfigEnc: encryptJson(smtpFull),
     imapConfigEnc: imapEnc,
+    ...(b.replyTo !== undefined ? { replyTo: b.replyTo.trim().toLowerCase() } : {}),
+    ...(b.senderIdentities !== undefined
+      ? { senderIdentities: b.senderIdentities.map((i) => ({ email: i.email.toLowerCase(), name: (i.name ?? "").trim() })) }
+      : {}),
   };
 
   const mb = b.id

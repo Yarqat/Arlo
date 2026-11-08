@@ -18,6 +18,8 @@ export default async function MailboxesPage() {
       providerType: m.providerType,
       dailyLimit: m.dailyLimit,
       hourlyLimit: m.hourlyLimit,
+      replyTo: m.replyTo,
+      senderIdentities: Array.isArray(m.senderIdentities) ? (m.senderIdentities as { email: string; name: string }[]) : [],
       status: m.status,
       lastError: m.lastError,
       lastSyncAt: m.lastSyncAt?.toISOString() ?? null,

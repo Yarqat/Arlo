@@ -62,6 +62,7 @@ Real screenshots of the live app: a guided setup checklist, plain-language setti
 
 ### 🔎 Research (evidence-bound)
 - Fetches a lead's public pages through an **SSRF-safe** fetcher (blocks private, loopback, link-local and cloud-metadata addresses).
+- **JavaScript rendering (optional):** point Arlo at [Firecrawl](https://www.firecrawl.dev/) (hosted key *or* a self-hosted instance) and research reads JS-heavy sites — Wix, Squarespace, React — as clean, LLM-ready markdown with nav/ads stripped. Without it, Arlo falls back to the built-in fetcher plus a dependency-free HTML→markdown cleaner, so nothing is required to get started.
 - Produces **facts and opportunities tied to evidence** — it will not claim a site is "slow", "insecure" or "losing revenue" without a measurement.
 - Risky or unverifiable claims are flagged for manual review rather than sent.
 - **Email enrichment (free, no API):** harvests contact emails from the prospect's own site (`mailto:` links and on-page addresses) during research, so leads that arrived without a contact become reachable. Junk/placeholder addresses are filtered; the first good address becomes the primary contact.
@@ -77,6 +78,11 @@ Real screenshots of the live app: a guided setup checklist, plain-language setti
 - **Idempotent sending** (a message can never be sent twice), per-RFC `List-Unsubscribe` headers, and one-click public unsubscribe.
 - Three modes per campaign: **Draft-only**, **Approve-first** (you click send), **Automatic** (sends within all guards).
 - **A/B subject lines:** give a campaign a set of subject variants (with a `{{business}}` token) and drafts rotate through them automatically, each tagged so Reports can compare reply rate per variant. Leave it empty and Arlo writes a fresh, unique subject every time.
+
+### 🎯 Learn your brand (from your own website)
+- In **Settings → Profile**, paste your website and hit **Learn my brand**. Arlo reads your own site and fills in your **company summary**, the **services you actually offer**, and your **brand voice** — so every email pitches what you really do, in your tone, instead of a generic agency pitch.
+- Services are saved to your catalogue (non-destructive) and the summary + voice feed straight into the drafting prompt, which is instructed to **only ever offer a service from your real list, never invent one**.
+- Uses the same optional JavaScript-rendering layer as research, so it works even on JS-heavy marketing sites.
 
 ### 🧑‍💼 Job-search mode
 - Flip a campaign into **Job-search mode** and Arlo flips the whole engine around: it finds **companies hiring** for a target role (with an optional "posted within N days" freshness filter), researches each one, and drafts outreach that pitches **you** as the candidate — with your uploaded **CV attached to every email**. Same discovery → research → draft → approve → follow-up → reply-handling pipeline, same guardrails.
@@ -106,6 +112,12 @@ Real screenshots of the live app: a guided setup checklist, plain-language setti
 - **Reply rate by industry** and **A/B subject performance**, so you can see what's actually working and focus where replies come from.
 - **Budgets you control**: daily/monthly spend, daily AI requests, new leads, research, emails per day/hour, follow-up caps — enforced by an **atomic, concurrency-safe reservation engine** that can't overspend. Transcription, reasoning and speech costs are tracked separately and roll into your daily spend.
 - One **Emergency pause** stops all outbound instantly.
+
+### 🛡️ Deliverability & domain authentication
+A built-in toolkit (**Settings → Deliverability**) that keeps your mail landing in the inbox — no paid third-party service.
+- **Inbox-health dashboard:** emails sent, delivery rate, bounce rate and opt-outs over the last 30 days, derived from your own send data. A **per-mailbox health table** grades each sending inbox **Healthy / Watch / At-risk** so a reputation problem shows up before it burns the domain.
+- **Domain authentication checker:** live **SPF, DKIM, DMARC and MX** checks per sending domain over pure DNS — no API key. Each domain gets a **0–100 score**, a Protected / Needs-attention / At-risk verdict, and a copy-paste fix for anything red or amber. It's Amazon-SES-aware and catches the traps that silently break authentication: **multiple SPF records, SPF that doesn't authorise your sender, a monitor-only `p=none` policy, and duplicate DMARC records.**
+- **DMARC reports — "who's sending as you":** ingests DMARC aggregate (`rua`) reports straight from your mailbox over IMAP, decompresses **gzip and zip** attachments and parses them (no new dependencies), then shows your **DMARC alignment rate** and a **top sending-sources** table with reverse-DNS names and a Passing / Partial / Failing verdict per IP — so a legitimate service you forgot to authorise, or an outright spoofer, stands out at a glance. Ingestion is idempotent and runs on demand from the dashboard.
 
 ---
 
@@ -208,7 +220,7 @@ Next.js 16 (App Router) ── owner-auth middleware ── React 19 + Tailwind 
                                    └─ 60s automation tick + reminders + daily briefing
 ```
 
-- **Deterministic core** in `src/lib`: `budget` (atomic reservations), `suppression`, `dedup`, `pipeline/*` (stage, preflight, outreach, research, verify, imap, reply), `providers/*` (ai, search, verifier, email, speech), `net/safe-fetch` (SSRF guard), `crypto` (AES-256-GCM + scrypt).
+- **Deterministic core** in `src/lib`: `budget` (atomic reservations), `suppression`, `dedup`, `pipeline/*` (stage, preflight, outreach, research, verify, imap, reply), `deliverability/*` (DNS auth checks, inbox-health metrics, DMARC report ingestion/parsing), `providers/*` (ai, search, verifier, email, speech), `net/safe-fetch` (SSRF guard) + `net/fetch-page` (optional Firecrawl JS-rendering with a local markdown fallback), `pipeline/brand` (learn-your-brand), `crypto` (AES-256-GCM + scrypt).
 - **Tests:** `pnpm test` runs a focused suite (dedup, CSV, bounce classifier, SSRF, scrubber, suppression-across-campaigns, concurrent-budget-never-overspends, model allowlist) against an isolated test database.
 
 ```bash

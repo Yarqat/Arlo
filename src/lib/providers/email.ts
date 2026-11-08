@@ -70,6 +70,7 @@ export async function testImap(cfg: ImapConfig): Promise<{ ok: boolean; error?: 
 
 export interface SendInput {
   from: string; // "Name <email>"
+  replyTo?: string; // route replies to a single monitored address
   to: string;
   subject: string;
   text: string;
@@ -94,6 +95,7 @@ export async function sendViaMailbox(mb: Mailbox, input: SendInput): Promise<Sen
   try {
     const info = await t.sendMail({
       from: input.from,
+      replyTo: input.replyTo,
       to: input.to,
       subject: input.subject,
       text: input.text,
