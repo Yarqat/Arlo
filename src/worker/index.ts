@@ -6,7 +6,7 @@ import { prisma } from "@/lib/db";
 import { log } from "@/lib/log";
 import { researchLead } from "@/lib/pipeline/research";
 import { verifyLead } from "@/lib/pipeline/verify";
-import { draftOutreach, sendMessage, scrubOutreach } from "@/lib/pipeline/outreach";
+import { draftOutreach, sendMessage, scrubLeak, scrubDeliverability } from "@/lib/pipeline/outreach";
 import { processFollowUp } from "@/lib/pipeline/followup";
 import { discoverForCampaign } from "@/lib/pipeline/discover";
 import { handleReply } from "@/lib/pipeline/reply";
@@ -212,7 +212,10 @@ async function tick() {
           take: 15,
         });
         for (const m of drafts) {
-          if (scrubOutreach(m.subject + "\n" + m.bodyText).clean) {
+          const text = m.subject + "\n" + m.bodyText;
+          // Auto-send only genuinely clean drafts: leaked AI text never sends,
+          // and spam words hold the draft for the owner unless they overrode it.
+          if (scrubLeak(text).clean && (scrubDeliverability(text).clean || m.allowSpamWords)) {
             await enqueue("outreach", "send", { action: "send", messageId: m.id });
           }
         }

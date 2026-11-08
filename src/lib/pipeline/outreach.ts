@@ -55,6 +55,60 @@ export function scrubOutreach(text: string): { clean: boolean; reasons: string[]
   return { clean: reasons.length === 0, reasons };
 }
 
+// Deliverability words (prices, "discount", "guarantee", "free trial"). These hurt
+// cold-email deliverability but are a judgement call — the OWNER may override them
+// on approval. Not a reason to hard-block a human-approved send.
+export function scrubDeliverability(text: string): { clean: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  for (const { re, label } of FORBIDDEN) if (re.test(text)) reasons.push(label);
+  return { clean: reasons.length === 0, reasons };
+}
+
+// The model's own reasoning / refusal / wrong-recipient apology leaking into the
+// email. This is broken output, never something a prospect should receive, so it
+// can NEVER be overridden — only rewritten.
+export function scrubLeak(text: string): { clean: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  for (const { re, label } of META_LEAK) if (re.test(text)) reasons.push(label);
+  return { clean: reasons.length === 0, reasons };
+}
+
+/**
+ * Rewrite an owner's draft to remove whatever the scrubber flagged (a price,
+ * "discount", a leaked bit of AI reasoning...) while keeping the meaning, length
+ * and voice. Used by the "Rewrite" button on a held draft. Returns the cleaned
+ * subject + body; throws if it still can't produce clean copy.
+ */
+export async function rewriteOutreach(
+  subject: string,
+  bodyText: string,
+  reasons: string[],
+  campaignId?: string | null,
+): Promise<{ subject: string; bodyText: string }> {
+  const system = [
+    "You revise a cold outreach email that was flagged before sending. Keep it almost identical — same meaning, same length (45–90 words), same voice and the same single call to action.",
+    "Only change what was flagged. Express the idea a different way instead of deleting the point:",
+    "- a price or money amount → describe it without numbers (e.g. 'a high-value treatment'), never a figure or currency symbol.",
+    "- 'discount' / 'guarantee' / 'free offer/trial' / 'money-back' → rephrase the benefit without the spam word (e.g. 'rewards guests who book direct').",
+    "- any leaked AI reasoning, apology, or 'I can't/ research notes' text → remove it entirely and write a confident sentence in its place.",
+    "Never add a greeting name you weren't given, a sign-off, or a signature — those are handled separately.",
+    "Output EXACTLY: a subject line, then a line of three dashes, then the body. Nothing else.",
+    "Subject: <subject line>",
+    "---",
+    "<email body>",
+  ].join("\n");
+  const user = `FLAGGED FOR: ${reasons.join("; ")}\n\nSubject: ${subject}\n---\n${bodyText}`;
+  const res = await runAiTask({ task: "OUTREACH_WRITING", system, messages: [{ role: "user", content: user }], campaignId: campaignId ?? undefined, maxTokens: 600, temperature: 0.4 });
+  const parsed = parseDraft(res.text);
+  const nextSubject = parsed.subject || subject;
+  const nextBody = parsed.body || bodyText;
+  // Guard the rewrite itself: never hand back something still broken.
+  if (!scrubLeak(nextSubject + "\n" + nextBody).clean) {
+    throw new Error("Couldn't produce a clean version automatically. Please edit the draft by hand.");
+  }
+  return { subject: nextSubject, bodyText: nextBody };
+}
+
 function unsubscribeUrl(token: string) {
   let base = "https://agent.yarqat.com";
   try {
@@ -456,14 +510,24 @@ export async function sendMessage(messageId: string, opts: { isFollowUp?: boolea
   });
   if (claim.count === 0) return { ok: false, reason: "Already sending or sent (idempotent stop)" };
 
-  // Last line of defence: never let banned/leaked content leave, even via the
-  // QUEUED auto-retry path (which doesn't re-check scrub). Put it back to DRAFT
-  // so it's held for review rather than failed or re-queued.
-  const guard = scrubOutreach(msg.subject + "\n" + msg.bodyText);
-  if (!guard.clean) {
+  // Last line of defence, even via the QUEUED auto-retry path (which doesn't
+  // re-check scrub). Two tiers:
+  //  - Leaked AI/meta text ("I can't write this", "research notes") is broken
+  //    output that must NEVER reach a prospect — always held for review.
+  //  - Spam words (prices, "discount", "guarantee") hurt deliverability but are
+  //    the owner's call: held by default, but allowed once the owner has
+  //    explicitly approved despite the warning (allowSpamWords).
+  const leak = scrubLeak(msg.subject + "\n" + msg.bodyText);
+  if (!leak.clean) {
     await prisma.message.update({ where: { id: messageId }, data: { state: "DRAFT" } });
-    await audit("worker", "send_blocked", "Message", messageId, `Blocked before send (held for review): ${guard.reasons.join(", ")}`);
-    return { ok: false, blocked: true, reason: `Content blocked: ${guard.reasons[0]}` };
+    await audit("worker", "send_blocked", "Message", messageId, `Blocked before send (held for review): ${leak.reasons.join(", ")}`);
+    return { ok: false, blocked: true, reason: `Content blocked: ${leak.reasons[0]}` };
+  }
+  const spam = scrubDeliverability(msg.subject + "\n" + msg.bodyText);
+  if (!spam.clean && !msg.allowSpamWords) {
+    await prisma.message.update({ where: { id: messageId }, data: { state: "DRAFT" } });
+    await audit("worker", "send_blocked", "Message", messageId, `Blocked before send (held for review): ${spam.reasons.join(", ")}`);
+    return { ok: false, blocked: true, reason: `Content blocked: ${spam.reasons[0]}` };
   }
 
   const pf = await preflight({

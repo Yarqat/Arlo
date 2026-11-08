@@ -4,12 +4,14 @@ import { prisma } from "@/lib/db";
 import { ownerRoute } from "@/lib/api";
 import { enqueue } from "@/lib/queue";
 import { audit } from "@/lib/audit";
-import { scrubOutreach } from "@/lib/pipeline/outreach";
+import { scrubLeak, scrubDeliverability, rewriteOutreach } from "@/lib/pipeline/outreach";
 
 const schema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("send"), id: z.string() }),
+  // override = owner chose "Send anyway" past a spam-word warning.
+  z.object({ action: z.literal("send"), id: z.string(), override: z.boolean().optional() }),
   z.object({ action: z.literal("discard"), id: z.string() }),
   z.object({ action: z.literal("unqueue"), id: z.string() }), // pull a queued email back to draft
+  z.object({ action: z.literal("rewrite"), id: z.string() }), // AI-clean a flagged draft
   z.object({ action: z.literal("edit"), id: z.string(), subject: z.string().max(300).optional(), bodyText: z.string().max(20000).optional() }),
 ]);
 
@@ -20,20 +22,41 @@ export const POST = ownerRoute(async (req) => {
 
   if (b.action === "send") {
     if (!["DRAFT", "QUEUED"].includes(msg.state)) return NextResponse.json({ error: `Cannot send a ${msg.state} message` }, { status: 400 });
-    // Check the content HERE, at approval, so the owner is told exactly what to
-    // fix — rather than the worker silently bouncing it back to DRAFT at send
-    // time (which made Approve look like it did nothing, and looped forever).
-    const scrub = scrubOutreach(msg.subject + "\n" + msg.bodyText);
-    if (!scrub.clean) {
+    const text = msg.subject + "\n" + msg.bodyText;
+    // Tier 1 — leaked AI/meta text is broken output and can NEVER be overridden.
+    const leak = scrubLeak(text);
+    if (!leak.clean) {
       return NextResponse.json({
-        error: `This email can't go out as written — it contains ${scrub.reasons.join("; and ")}. Edit it out above, then approve again.`,
-        kind: "content",
+        error: `This email contains text that was never meant to send — ${leak.reasons.join("; and ")}. Use Rewrite to fix it.`,
+        kind: "leak",
       }, { status: 400 });
     }
-    await prisma.message.update({ where: { id: b.id }, data: { state: "QUEUED" } });
+    // Tier 2 — spam words hurt deliverability but are the owner's call. Warn, and
+    // let "Send anyway" (override) through; remember it so later retries honour it.
+    const spam = scrubDeliverability(text);
+    if (!spam.clean && !b.override) {
+      return NextResponse.json({
+        error: `This email contains ${spam.reasons.join("; and ")}. Rewrite it to protect deliverability, or send it anyway.`,
+        kind: "spamword",
+        canOverride: true,
+      }, { status: 400 });
+    }
+    await prisma.message.update({ where: { id: b.id }, data: { state: "QUEUED", ...(!spam.clean ? { allowSpamWords: true } : {}) } });
     await enqueue("outreach", "send", { action: "send", messageId: b.id, actor: "owner" });
-    await audit("owner", "approve_send", "Message", b.id, "Owner approved send");
+    await audit("owner", "approve_send", "Message", b.id, spam.clean ? "Owner approved send" : `Owner approved send despite warning: ${spam.reasons.join(", ")}`);
     return NextResponse.json({ ok: true });
+  }
+  if (b.action === "rewrite") {
+    if (!["DRAFT", "QUEUED"].includes(msg.state)) return NextResponse.json({ error: `Can't rewrite a ${msg.state} message` }, { status: 400 });
+    const reasons = [...scrubLeak(msg.subject + "\n" + msg.bodyText).reasons, ...scrubDeliverability(msg.subject + "\n" + msg.bodyText).reasons];
+    try {
+      const out = await rewriteOutreach(msg.subject, msg.bodyText, reasons.length ? reasons : ["spam-trigger wording"], msg.campaignId);
+      await prisma.message.update({ where: { id: b.id }, data: { subject: out.subject, bodyText: out.bodyText, snippet: out.bodyText.slice(0, 140) } });
+      await audit("owner", "message_rewrite", "Message", b.id, "Owner rewrote a flagged draft");
+      return NextResponse.json({ ok: true, subject: out.subject, bodyText: out.bodyText });
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message || "Rewrite failed. Edit the draft by hand.", kind: "rewrite" }, { status: 502 });
+    }
   }
   if (b.action === "discard") {
     if (!["DRAFT", "QUEUED"].includes(msg.state)) return NextResponse.json({ error: "Only unsent emails can be discarded" }, { status: 400 });

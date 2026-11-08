@@ -510,6 +510,9 @@ model Message {
   isAutoReply    Boolean  @default(false)
   followUpStep   Int      @default(0)
   variantKey     String   @default("") // A/B subject variant used (blank = none)
+  // Owner approved this draft despite a deliverability (spam-word) warning, so
+  // the send guard lets it through on approval and on every later retry.
+  allowSpamWords Boolean  @default(false)
 
   // Click tracking (opt-in). trackToken keys the click-redirect links in the body.
   // No open tracking — we deliberately do not embed tracking pixels. The token is a
