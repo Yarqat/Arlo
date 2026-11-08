@@ -6,6 +6,7 @@
 // stripped). Otherwise it falls back to the built-in SSRF-safe fetch plus a
 // dependency-free HTML→markdown cleaner. Either way the caller gets markdown.
 import { safeFetch } from "./safe-fetch";
+import { renderPage, jsRenderAvailable } from "./render";
 import { log } from "@/lib/log";
 
 export interface FetchedPage {
@@ -14,7 +15,7 @@ export interface FetchedPage {
   markdown: string;
   /** Raw (or JS-rendered) HTML when available — used for link/email harvesting. */
   html: string;
-  via: "firecrawl" | "fetch";
+  via: "render" | "firecrawl" | "fetch";
 }
 
 function firecrawlBase(): string {
@@ -69,14 +70,27 @@ async function firecrawlScrape(url: string, opts: FetchOpts): Promise<FetchedPag
 }
 
 export async function fetchPage(url: string, opts: FetchOpts = {}): Promise<FetchedPage> {
+  // 1. Built-in JavaScript rendering (our own headless Chromium) — the default
+  //    whenever a browser is present on the host. No external service needed.
+  if (jsRenderAvailable()) {
+    try {
+      const r = await renderPage(url, { timeoutMs: opts.timeoutMs ?? 20000 });
+      if (r.status < 400 && r.html) {
+        return { url: r.url, status: r.status, markdown: htmlToMarkdown(r.html), html: r.html, via: "render" };
+      }
+    } catch (e) {
+      log.warn("js render failed, falling back", { url, err: (e as Error).message });
+    }
+  }
+  // 2. Firecrawl — only if explicitly configured (an alternative, not required).
   if (firecrawlEnabled()) {
     try {
       return await firecrawlScrape(url, opts);
     } catch (e) {
-      // Fall back to a plain fetch so a Firecrawl outage never stalls research.
       log.warn("firecrawl scrape failed, falling back to fetch", { url, err: (e as Error).message });
     }
   }
+  // 3. Plain SSRF-safe fetch + local HTML→markdown (always available).
   const res = await safeFetch(url, { maxBytes: opts.maxBytes ?? 1_500_000, timeoutMs: opts.timeoutMs ?? 15000 });
   return { url: res.url, status: res.status, markdown: htmlToMarkdown(res.body), html: res.body, via: "fetch" };
 }

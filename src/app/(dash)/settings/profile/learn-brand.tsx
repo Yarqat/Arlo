@@ -79,7 +79,7 @@ export function LearnBrand({ initialWebsite }: { initialWebsite: string }) {
             <div className="mt-4 space-y-3">
               <div className="flex items-center gap-2 text-sm font-medium text-success">
                 <Check className="size-4" /> Saved to your profile · read {result.pagesRead} page{result.pagesRead === 1 ? "" : "s"}
-                {result.via === "firecrawl" && <Badge tone="neutral">JS-rendered</Badge>}
+                {result.via !== "fetch" && <Badge tone="neutral">JS-rendered</Badge>}
               </div>
               {result.summary && (
                 <div>

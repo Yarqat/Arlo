@@ -6,7 +6,7 @@ import net from "node:net";
 
 export class UnsafeUrlError extends Error {}
 
-function isBlockedIp(ip: string): boolean {
+export function isBlockedIp(ip: string): boolean {
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split(".").map(Number);
     if (a === 10) return true;

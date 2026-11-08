@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   // The worker and some server libs use native/node deps that must not be bundled.
-  serverExternalPackages: ["imapflow", "nodemailer", "bullmq", "ioredis", "@prisma/client", "prisma"],
+  serverExternalPackages: ["imapflow", "nodemailer", "bullmq", "ioredis", "@prisma/client", "prisma", "puppeteer-core"],
   outputFileTracingRoot: process.cwd(),
   async headers() {
     return [

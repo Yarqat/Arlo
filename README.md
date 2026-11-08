@@ -62,7 +62,7 @@ Real screenshots of the live app: a guided setup checklist, plain-language setti
 
 ### 🔎 Research (evidence-bound)
 - Fetches a lead's public pages through an **SSRF-safe** fetcher (blocks private, loopback, link-local and cloud-metadata addresses).
-- **JavaScript rendering (optional):** point Arlo at [Firecrawl](https://www.firecrawl.dev/) (hosted key *or* a self-hosted instance) and research reads JS-heavy sites — Wix, Squarespace, React — as clean, LLM-ready markdown with nav/ads stripped. Without it, Arlo falls back to the built-in fetcher plus a dependency-free HTML→markdown cleaner, so nothing is required to get started.
+- **JavaScript rendering (built in):** reads JS-heavy sites — Wix, Squarespace, React — with a **headless Chromium already on the host** (via `puppeteer-core`; no bundled download, no external service), returning clean, LLM-ready markdown with nav/ads stripped. On by default when a browser is present (`apt install chromium`); renders are serialised and SSRF-guarded. No browser? It falls back to a plain fetch + a dependency-free HTML→markdown cleaner — or you can point it at [Firecrawl](https://www.firecrawl.dev/) (hosted or self-hosted). Nothing is required to get started.
 - Produces **facts and opportunities tied to evidence** — it will not claim a site is "slow", "insecure" or "losing revenue" without a measurement.
 - Risky or unverifiable claims are flagged for manual review rather than sent.
 - **Email enrichment (free, no API):** harvests contact emails from the prospect's own site (`mailto:` links and on-page addresses) during research, so leads that arrived without a contact become reachable. Junk/placeholder addresses are filtered; the first good address becomes the primary contact.
@@ -123,7 +123,9 @@ A built-in toolkit (**Settings → Deliverability**) that keeps your mail landin
 
 ## Quick start
 
-> Arlo is a single-owner, self-hosted app. You need **Node 20+**, **PostgreSQL** and **Redis**.
+> **Full step-by-step guide (prerequisites → database → services → HTTPS):** see **[INSTALLATION.md](INSTALLATION.md)**.
+
+> Arlo is a single-owner, self-hosted app. You need **Node 20+**, **PostgreSQL**, **Redis**, and (for JavaScript rendering) a **Chromium** on the host (`apt install chromium`).
 
 ```bash
 git clone https://github.com/Yarqat/Arlo.git
@@ -220,7 +222,7 @@ Next.js 16 (App Router) ── owner-auth middleware ── React 19 + Tailwind 
                                    └─ 60s automation tick + reminders + daily briefing
 ```
 
-- **Deterministic core** in `src/lib`: `budget` (atomic reservations), `suppression`, `dedup`, `pipeline/*` (stage, preflight, outreach, research, verify, imap, reply), `deliverability/*` (DNS auth checks, inbox-health metrics, DMARC report ingestion/parsing), `providers/*` (ai, search, verifier, email, speech), `net/safe-fetch` (SSRF guard) + `net/fetch-page` (optional Firecrawl JS-rendering with a local markdown fallback), `pipeline/brand` (learn-your-brand), `crypto` (AES-256-GCM + scrypt).
+- **Deterministic core** in `src/lib`: `budget` (atomic reservations), `suppression`, `dedup`, `pipeline/*` (stage, preflight, outreach, research, verify, imap, reply), `deliverability/*` (DNS auth checks, inbox-health metrics, DMARC report ingestion/parsing), `providers/*` (ai, search, verifier, email, speech), `net/safe-fetch` (SSRF guard) + `net/render` (built-in headless-Chromium JS rendering) + `net/fetch-page` (render → optional Firecrawl → local markdown fallback), `pipeline/brand` (learn-your-brand), `crypto` (AES-256-GCM + scrypt).
 - **Tests:** `pnpm test` runs a focused suite (dedup, CSV, bounce classifier, SSRF, scrubber, suppression-across-campaigns, concurrent-budget-never-overspends, model allowlist) against an isolated test database.
 
 ```bash
