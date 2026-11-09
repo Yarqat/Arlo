@@ -235,8 +235,6 @@ export async function draftOutreach(leadId: string, opts: { actor?: string } = {
   const sendingMailbox = campaign?.sendingMailboxId
     ? await prisma.mailbox.findUnique({ where: { id: campaign.sendingMailboxId } })
     : await prisma.mailbox.findFirst({ where: { status: "CONNECTED", active: true } });
-  const personaMode = !!sendingMailbox && Array.isArray(sendingMailbox.senderIdentities) && (sendingMailbox.senderIdentities as unknown[]).length > 0;
-  const draftIdentity = sendingMailbox ? pickSenderIdentity(sendingMailbox, lead.id) : null;
 
   const findingsText = lead.findings
     .map((f) => `- [${f.kind}] ${f.observation}${f.evidenceText ? ` (evidence: "${f.evidenceText}")` : ""}${f.pageUrl ? ` <${f.pageUrl}>` : ""}`)
@@ -346,13 +344,8 @@ export async function draftOutreach(leadId: string, opts: { actor?: string } = {
 
   const scrub = scrubOutreach(subject + "\n" + bodyCore);
   // Signature follows the sending persona so the From name and the sign-off
-  // always match. In persona mode we never emit the owner's default signature
-  // (which carries their real name/title); we sign as the chosen persona under
-  // the company, keeping any website line from the default signature.
-  const sigUrl = (profile.defaultSignature || "").match(/https?:\/\/\S+/)?.[0];
-  const signature = personaMode && draftIdentity
-    ? `\n\n${draftIdentity.name}\n${profile.companyName}${sigUrl ? `\n${sigUrl}` : ""}`
-    : profile.defaultSignature ? `\n\n${profile.defaultSignature}` : `\n\n${profile.personName}\n${profile.companyName}`;
+  // always match — for the first touch AND every follow-up (same helper).
+  const signature = senderSignature(sendingMailbox, lead.id, profile);
   const needsReview = !scrub.clean || campaign?.outreachMode !== "AUTOMATIC";
 
   // One draft per pending contact. Subject + core body are shared; each message
@@ -407,7 +400,7 @@ export async function draftOutreach(leadId: string, opts: { actor?: string } = {
  * least today — spreading volume so no single address carries all the
  * reputation (and so adding a 2nd/3rd mailbox immediately shares the load).
  */
-async function chooseMailbox(msg: { mailboxId: string | null; threadId: string | null; campaign: { sendingMailboxId: string | null } | null }) {
+export async function chooseMailbox(msg: { mailboxId: string | null; threadId: string | null; campaign: { sendingMailboxId: string | null } | null }) {
   if (msg.mailboxId) {
     const m = await prisma.mailbox.findUnique({ where: { id: msg.mailboxId } });
     if (m) return m;
@@ -454,21 +447,66 @@ function hashIndex(key: string, n: number): number {
  * chosen stably per lead. Rotating the visible sender while keeping one SMTP
  * transport spreads sending identity without needing a full mailbox each.
  */
-function pickSenderIdentity(mailbox: { email: string; senderName: string; senderIdentities: unknown }, key: string): Identity {
+type SenderMailbox = { email: string; senderName: string; senderIdentities: unknown };
+
+/** The From identities this mailbox may send as: its configured send-as personas
+ *  if any, otherwise just the base address. The base role box (e.g. support@) is
+ *  never a visible From once personas exist — it stays the reply/transport address. */
+function senderPool(mailbox: SenderMailbox): Identity[] {
   const extra = Array.isArray(mailbox.senderIdentities)
     ? (mailbox.senderIdentities as Array<{ email?: unknown; name?: unknown }>)
         .map((x) => ({ email: String(x?.email ?? "").trim(), name: String(x?.name ?? "").trim() }))
         .filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x.email))
     : [];
-  // When explicit send-as personas are configured, send ONLY as those (the base
-  // mailbox address — often a role box like support@ — stays the reply/transport
-  // address and is never a visible From). With none configured, send as the base.
   const pool: Identity[] = extra.length > 0
     ? extra.map((e) => ({ email: e.email, name: e.name || mailbox.senderName }))
     : [{ email: mailbox.email, name: mailbox.senderName }];
   const seen = new Set<string>();
-  const uniq = pool.filter((p) => (seen.has(p.email.toLowerCase()) ? false : (seen.add(p.email.toLowerCase()), true)));
+  return pool.filter((p) => (seen.has(p.email.toLowerCase()) ? false : (seen.add(p.email.toLowerCase()), true)));
+}
+
+export function pickSenderIdentity(mailbox: SenderMailbox, key: string): Identity {
+  const uniq = senderPool(mailbox);
   return uniq[hashIndex(key, uniq.length)];
+}
+
+/**
+ * The identity to send a message as. A thread keeps ONE sender for its whole life:
+ * if an earlier message on the thread already picked a From (priorFromAddr), reuse
+ * it so first touch and every follow-up share one name — even if the persona list
+ * changed in between. Only a brand-new thread rolls a fresh identity per lead.
+ */
+export function resolveIdentity(mailbox: SenderMailbox, leadKey: string, priorFromAddr?: string | null): Identity {
+  if (priorFromAddr) {
+    const want = priorFromAddr.trim().toLowerCase();
+    const prior = senderPool(mailbox).find((p) => p.email.toLowerCase() === want);
+    if (prior) return prior;
+    // The earlier send used the base mailbox address (persona mode was off then).
+    if (want === mailbox.email.trim().toLowerCase()) return { email: mailbox.email, name: mailbox.senderName };
+  }
+  return pickSenderIdentity(mailbox, leadKey);
+}
+
+/**
+ * The sign-off block, matched to the SAME identity resolveIdentity puts in the From
+ * line, so the From name and the signature name can never disagree — on the first
+ * touch or any follow-up. With no send-as personas, falls back to the owner's
+ * default signature.
+ */
+export function senderSignature(
+  mailbox: SenderMailbox | null | undefined,
+  leadKey: string,
+  profile: { defaultSignature: string; personName: string; companyName: string },
+  priorFromAddr?: string | null,
+): string {
+  const identity = mailbox ? resolveIdentity(mailbox, leadKey, priorFromAddr) : null;
+  const sigUrl = (profile.defaultSignature || "").match(/https?:\/\/\S+/)?.[0];
+  // Persona sign-off whenever the resolved From isn't the base mailbox address;
+  // otherwise the owner's own default signature.
+  const isPersona = !!identity && !!mailbox && identity.email.toLowerCase() !== mailbox.email.trim().toLowerCase();
+  return isPersona && identity
+    ? `\n\n${identity.name}\n${profile.companyName}${sigUrl ? `\n${sigUrl}` : ""}`
+    : profile.defaultSignature ? `\n\n${profile.defaultSignature}` : `\n\n${profile.personName}\n${profile.companyName}`;
 }
 
 /**
@@ -560,10 +598,18 @@ export async function sendMessage(messageId: string, opts: { isFollowUp?: boolea
   const domain = mailbox.email.split("@")[1] || "agent.yarqat.com";
   const messageIdHeader = buildMessageId(domain);
 
-  // Rotate the visible From across the mailbox's send-as identities (stable per
-  // lead), but force replies to the one monitored address so the bot still sees
-  // every reply on this mailbox's IMAP regardless of which From was used.
-  const identity = pickSenderIdentity(mailbox, msg.leadId ?? msg.contactId ?? messageId);
+  // One sender per thread: reuse the From an earlier message on this thread used,
+  // so a follow-up never arrives under a different name than the first email.
+  // A brand-new thread rolls a stable-per-lead identity. Replies are always forced
+  // to the one monitored address, whichever From was shown.
+  const priorFromAddr = msg.threadId
+    ? (await prisma.message.findFirst({
+        where: { threadId: msg.threadId, direction: "OUTBOUND", fromAddr: { not: "" }, id: { not: messageId } },
+        orderBy: { createdAt: "asc" },
+        select: { fromAddr: true },
+      }))?.fromAddr ?? null
+    : null;
+  const identity = resolveIdentity(mailbox, msg.leadId ?? msg.contactId ?? messageId, priorFromAddr);
   const replyTo = replyToFor(mailbox, identity.email);
   const replyTarget = mailbox.replyTo || mailbox.email;
 

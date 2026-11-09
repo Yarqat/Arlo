@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getSettings, getProfile } from "@/lib/settings";
 import { runAiTask, extractJson } from "@/lib/providers/ai";
-import { sendMessage, scrubOutreach } from "./outreach";
+import { sendMessage, scrubOutreach, chooseMailbox, senderSignature } from "./outreach";
 import { audit } from "@/lib/audit";
 
 /** After a send, schedule the next follow-up step if the sequence allows it. */
@@ -88,7 +88,16 @@ export async function processFollowUp(actionId: string): Promise<{ ok: boolean; 
       return { ok: false, reason: "Follow-up draft empty or flagged" };
     }
     const settings = await getSettings();
-    const sig = profile.defaultSignature ? `\n\n${profile.defaultSignature}` : `\n\n${profile.personName}`;
+    // Sign as the SAME persona the From line will use (chosen per lead on the
+    // thread's mailbox), so a follow-up from "Daniel Foster" is never signed
+    // "Shah Fahad". chooseMailbox resolves the thread's mailbox, exactly as the
+    // sender will at send time.
+    const mailbox = await chooseMailbox({
+      mailboxId: lastOutbound.mailboxId,
+      threadId: lastOutbound.threadId,
+      campaign: action.campaignId ? { sendingMailboxId: (await prisma.campaign.findUnique({ where: { id: action.campaignId }, select: { sendingMailboxId: true } }))?.sendingMailboxId ?? null } : null,
+    });
+    const sig = senderSignature(mailbox, action.leadId, profile, lastOutbound.fromAddr);
     draft = await prisma.message.create({
       data: {
         leadId: action.leadId,
