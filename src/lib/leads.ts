@@ -48,6 +48,13 @@ export async function importLeads(
   for (const rec of records) {
     const name = rec.businessName?.trim();
     if (!name) continue;
+    // A suppressed address is off-limits: never create a lead, contact or research
+    // job for it (manual opt-out, bounce, unsubscribe). If the same business has
+    // other, non-suppressed emails, those records still import it normally.
+    if (rec.email && rec.email.includes("@") && (await isSuppressed(rec.email))) {
+      sum.suppressedSkipped++;
+      continue;
+    }
     const key = dedupeKey({ website: rec.website, email: rec.email, businessName: name, city: rec.city });
     const domain = canonicalDomain(rec.website || "") || (rec.email ? canonicalDomain(rec.email) : null);
 
@@ -98,7 +105,8 @@ export async function importLeads(
       if (exists) {
         if (!isNew) sum.duplicates++;
       } else {
-        const suppressed = await isSuppressed(email);
+        // Suppressed addresses were already skipped above, so anything reaching
+        // here is contactable.
         await prisma.contact.create({
           data: {
             leadId: lead.id,
@@ -112,7 +120,6 @@ export async function importLeads(
           },
         });
         sum.contactsAdded++;
-        if (suppressed) sum.suppressedSkipped++;
       }
     } else if (!isNew) {
       sum.duplicates++;
