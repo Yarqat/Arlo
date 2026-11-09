@@ -525,6 +525,9 @@ export interface SendResultOut {
   reason?: string;
   blocked?: boolean;
   nextEligibleAt?: Date;
+  // A content block (leaked AI text, spam words) that retrying can NEVER clear —
+  // the draft is held for review. Callers must stop retrying it, not reschedule.
+  heldForReview?: boolean;
 }
 
 /**
@@ -559,13 +562,13 @@ export async function sendMessage(messageId: string, opts: { isFollowUp?: boolea
   if (!leak.clean) {
     await prisma.message.update({ where: { id: messageId }, data: { state: "DRAFT" } });
     await audit("worker", "send_blocked", "Message", messageId, `Blocked before send (held for review): ${leak.reasons.join(", ")}`);
-    return { ok: false, blocked: true, reason: `Content blocked: ${leak.reasons[0]}` };
+    return { ok: false, blocked: true, heldForReview: true, reason: `Content blocked: ${leak.reasons[0]}` };
   }
   const spam = scrubDeliverability(msg.subject + "\n" + msg.bodyText);
   if (!spam.clean && !msg.allowSpamWords) {
     await prisma.message.update({ where: { id: messageId }, data: { state: "DRAFT" } });
     await audit("worker", "send_blocked", "Message", messageId, `Blocked before send (held for review): ${spam.reasons.join(", ")}`);
-    return { ok: false, blocked: true, reason: `Content blocked: ${spam.reasons[0]}` };
+    return { ok: false, blocked: true, heldForReview: true, reason: `Content blocked: ${spam.reasons[0]}` };
   }
 
   const pf = await preflight({

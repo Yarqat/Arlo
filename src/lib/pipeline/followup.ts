@@ -122,6 +122,12 @@ export async function processFollowUp(actionId: string): Promise<{ ok: boolean; 
   if (send.ok) {
     await prisma.scheduledAction.update({ where: { id: actionId }, data: { status: "DONE" } });
     await audit("worker", "follow_up", "Message", draft.id, `Follow-up step ${step} sent`);
+  } else if (send.heldForReview) {
+    // A content block (leaked AI text, spam words) can NEVER clear by retrying the
+    // same draft — retrying just floods the log every tick. Stop: cancel the
+    // follow-up and leave the draft held for the owner to rewrite or discard.
+    await prisma.scheduledAction.update({ where: { id: actionId }, data: { status: "CANCELLED", blockedReason: `held for review: ${send.reason ?? "content"}` } });
+    await audit("worker", "follow_up_held", "Message", draft.id, `Follow-up step ${step} held for review: ${send.reason ?? "content"}`);
   } else if (send.blocked && send.nextEligibleAt) {
     await prisma.scheduledAction.update({ where: { id: actionId }, data: { runAt: send.nextEligibleAt, blockedReason: send.reason ?? "" } });
   } else {
